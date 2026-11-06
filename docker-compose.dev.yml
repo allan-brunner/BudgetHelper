@@ -1,0 +1,55 @@
+services:
+  db:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    container_name: budget-db-dev
+    environment:
+      - SQLD_NODE=primary
+    volumes:
+      - sqlite_dev_data:/var/lib/sqld
+    networks:
+      - db_net
+
+  backend:
+    build:
+      context: ./backend
+      target: dev
+    container_name: budget-backend-dev
+    environment:
+      - PORT=3000
+      - APP_PIN=1234
+      - DB_URL=http://db:8080
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      - db
+    networks:
+      - db_net
+      - frontend_net
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    container_name: budget-frontend-dev
+    environment:
+      - VITE_API_TARGET=http://backend:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - frontend_net
+
+networks:
+  frontend_net:
+    driver: bridge
+  db_net:
+    driver: bridge
+    internal: true
+
+volumes:
+  sqlite_dev_data:

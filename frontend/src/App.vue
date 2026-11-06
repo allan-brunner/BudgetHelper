@@ -5,11 +5,13 @@ import AccountTabs from './components/AccountTabs.vue'
 import BalanceCard from './components/BalanceCard.vue'
 import PocketGrid from './components/PocketGrid.vue'
 import QuickAdd from './components/QuickAdd.vue'
+import TransactionList from './components/TransactionList.vue'
 
 const isAuthenticated = ref(false)
 const budgetData = ref(null)
 const activeView = ref('shared')
 const timeframe = ref('week') // 'week' or 'month'
+const currentPage = ref('dashboard')
 
 const CYCLE_START_DAY = 20
 
@@ -124,34 +126,67 @@ async function refreshData() {
   <main class="mobile-container">
     <PinPad v-if="!isAuthenticated" @success="handleLoginSuccess" />
 
-    <section v-else-if="budgetData" class="dashboard">
+    <div v-else-if="budgetData" class="app-layout">
+      
+      <!-- Global Header -->
       <AccountTabs 
         :accounts="budgetData.accounts" 
         :activeView="activeView" 
         @update:activeView="(val) => activeView = val" 
       />
 
-      <BalanceCard 
-        :title="balanceTitle" 
-        :amount="currentDisplayBalance" 
-      />
+      <!-- Dashboard -->
+      <section v-if="currentPage === 'dashboard'" class="page-content">
+        <BalanceCard 
+          :title="balanceTitle" 
+          :amount="currentDisplayBalance" 
+        />
 
-      <!-- Cycle Info & Timeframe Toggle -->
-      <div class="controls-row">
-        <div class="cycle-info">
-          <small>Week {{ cycleInfo.currentWeekIndex }} / {{ Math.ceil(cycleInfo.totalWeeks) }}</small>
+        <div class="controls-row">
+          <div class="cycle-info">
+            <small>Week {{ cycleInfo.currentWeekIndex }} / {{ Math.ceil(cycleInfo.totalWeeks) }}</small>
+          </div>
+          <div class="toggle-group">
+            <button :class="{ active: timeframe === 'week' }" @click="timeframe = 'week'">Week</button>
+            <button :class="{ active: timeframe === 'month' }" @click="timeframe = 'month'">Month</button>
+          </div>
         </div>
-        <div class="toggle-group">
-          <button :class="{ active: timeframe === 'week' }" @click="timeframe = 'week'">Week</button>
-          <button :class="{ active: timeframe === 'month' }" @click="timeframe = 'month'">Month</button>
-        </div>
-      </div>
 
-      <PocketGrid 
-        :pockets="displayPockets" 
-      />
-      <QuickAdd :accounts="budgetData.accounts" :activeView="activeView" :pockets="budgetData.pockets" @added="refreshData"/>
-    </section>
+        <PocketGrid :pockets="displayPockets" />
+        
+        <QuickAdd 
+          :accounts="budgetData.accounts" 
+          :activeView="activeView" 
+          :pockets="budgetData.pockets" 
+          @added="refreshData"
+        />
+      </section>
+
+      <!-- Transactions -->
+      <section v-else-if="currentPage === 'transactions'" class="page-content">
+        <TransactionList 
+          :transactions="budgetData.transactions"
+          :accounts="budgetData.accounts"
+          :pockets="budgetData.pockets"
+          :activeView="activeView"
+        />
+      </section>
+
+      <!-- Bottom Navigation Bar -->
+      <nav class="bottom-nav">
+        <button 
+          :class="{ active: currentPage === 'dashboard' }" 
+          @click="currentPage = 'dashboard'">
+          Dashboard
+        </button>
+        <button 
+          :class="{ active: currentPage === 'transactions' }" 
+          @click="currentPage = 'transactions'">
+          Transactions
+        </button>
+      </nav>
+
+    </div>
   </main>
 </template>
 
@@ -202,5 +237,51 @@ async function refreshData() {
 .toggle-group button.active {
   background: var(--accent);
   color: #fff;
+}
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  height: 100%;
+}
+
+.page-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding-bottom: 4rem; /* Ensures scrolling doesn't hide behind nav */
+}
+
+/* Bottom Navigation */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 420px; /* Matches mobile-container */
+  display: flex;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding: 0.5rem;
+  gap: 0.5rem;
+  box-sizing: border-box;
+}
+
+.bottom-nav button {
+  flex: 1;
+  padding: 0.75rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.bottom-nav button.active {
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 </style>
