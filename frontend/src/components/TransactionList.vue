@@ -5,23 +5,30 @@ const props = defineProps({
   transactions: Array,
   accounts: Array,
   pockets: Array,
-  activeView: String // 'shared', or specific account id
+  activeView: String
 })
 
-// Helper functions to get display names from IDs
+const emit = defineEmits(['updated'])
+
 const getAccountName = (id) => props.accounts.find(a => a.id === id)?.name || id
 const getPocketName = (id) => {
   if (!id || id === 'unallocated') return 'Main Account'
   return props.pockets.find(p => p.id === id)?.name || id
 }
 
-// Filter transactions based on the active AccountTab view
 const filteredTransactions = computed(() => {
   if (!props.transactions) return []
   return props.transactions.filter(tx =>
     props.activeView === 'shared' ? true : tx.accountId === props.activeView
   )
 })
+
+async function deleteTx(id) {
+  const res = await fetch(`/api/transactions/${id}`, { method: 'DELETE' })
+  if (res.ok) {
+    emit('updated')
+  }
+}
 </script>
 
 <template>
@@ -37,8 +44,13 @@ const filteredTransactions = computed(() => {
           {{ getAccountName(tx.accountId) }} • {{ getPocketName(tx.pocketId) }} • {{ tx.date }}
         </small>
       </div>
-      <div class="tx-right" :class="tx.type">
-        {{ tx.type === 'credit' ? '+' : '-' }}{{ tx.amount.toFixed(2) }} CHF
+      <div class="tx-actions">
+        <div class="tx-right" :class="tx.type">
+          {{ tx.type === 'credit' ? '+' : '-' }}{{ tx.amount.toFixed(2) }} CHF
+        </div>
+        <button v-if="tx.id" class="delete-btn" @click="deleteTx(tx.id)" title="Delete transaction">
+          ✕
+        </button>
       </div>
     </div>
   </div>
@@ -66,11 +78,13 @@ const filteredTransactions = computed(() => {
   background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
+  gap: 0.5rem;
 }
 
 .tx-left {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .tx-left strong {
@@ -84,9 +98,16 @@ const filteredTransactions = computed(() => {
   margin-top: 0.25rem;
 }
 
+.tx-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
 .tx-right {
   font-weight: bold;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
 }
 
 .tx-right.credit {
@@ -95,5 +116,23 @@ const filteredTransactions = computed(() => {
 
 .tx-right.debit {
   color: var(--text-h);
+}
+
+.delete-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delete-btn:hover {
+  color: #ef4444;
+  border-color: #ef4444;
 }
 </style>

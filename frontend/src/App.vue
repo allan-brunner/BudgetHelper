@@ -165,7 +165,7 @@ async function refreshData() {
       <!-- Transactions -->
       <section v-else-if="currentPage === 'transactions'" class="page-content">
         <TransactionList :transactions="budgetData.transactions" :accounts="budgetData.accounts"
-          :pockets="budgetData.pockets" :activeView="activeView" />
+          :pockets="budgetData.pockets" :activeView="activeView" @updated="refreshData" />
       </section>
 
       <section v-else-if="currentPage === 'rules'" class="page-content">

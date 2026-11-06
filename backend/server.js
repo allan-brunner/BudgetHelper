@@ -110,7 +110,7 @@ app.get('/api/budget', async (req, res) => {
 
 app.post('/api/transactions', async (req, res) => {
     try {
-        const { accountId, pocketId, type = 'debit', amount, label } = req.body;
+        const { accountId, pocketId, targetPocketId, type = 'debit', amount, label } = req.body;
         if (!accountId || !pocketId || amount === undefined) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
@@ -118,19 +118,19 @@ app.post('/api/transactions', async (req, res) => {
         const date = new Date().toISOString().split('T')[0];
         const numAmount = Number(amount);
 
-        if (type === 'allocate') {
-            if (pocketId === 'unallocated') {
-                return res.status(400).json({ error: 'Select a target pocket to allocate funds' });
+        if (type === 'transfer') {
+            if (!targetPocketId || pocketId === targetPocketId) {
+                return res.status(400).json({ error: 'Select two different pockets/accounts for transfer' });
             }
-            const cleanLabel = label || 'Pocket Allocation';
+            const cleanLabel = label || 'Transfer';
             await db.batch([
                 {
                     sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-                    args: [accountId, 'unallocated', 'debit', numAmount, `${cleanLabel} (Out)`, date]
+                    args: [accountId, pocketId, 'debit', numAmount, `${cleanLabel} (→)`, date]
                 },
                 {
                     sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-                    args: [accountId, pocketId, 'credit', numAmount, `${cleanLabel} (In)`, date]
+                    args: [accountId, targetPocketId, 'credit', numAmount, `${cleanLabel} (←)`, date]
                 }
             ], 'write');
 
@@ -155,6 +155,19 @@ app.post('/api/transactions', async (req, res) => {
                 date
             }
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete a transaction
+app.delete('/api/transactions/:id', async (req, res) => {
+    try {
+        await db.execute({
+            sql: 'DELETE FROM transactions WHERE id = ?',
+            args: [Number(req.params.id)]
+        });
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
