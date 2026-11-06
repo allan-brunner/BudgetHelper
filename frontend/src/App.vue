@@ -7,6 +7,7 @@ import PocketGrid from './components/PocketGrid.vue'
 import QuickAdd from './components/QuickAdd.vue'
 import TransactionList from './components/TransactionList.vue'
 import RulesManager from './components/RulesManager.vue'
+import PocketsManager from './components/PocketsManager.vue'
 
 const isAuthenticated = ref(false)
 const budgetData = ref(null)
@@ -125,6 +126,10 @@ const displayPockets = computed(() => {
   })
 })
 
+const pinnedPockets = computed(() => {
+  return displayPockets.value.filter(p => Boolean(p.pinned))
+})
+
 // Function to refetch data when a transaction is added
 async function refreshData() {
   const res = await fetch('/api/budget')
@@ -156,7 +161,7 @@ async function refreshData() {
           </div>
         </div>
 
-        <PocketGrid :pockets="displayPockets" />
+        <PocketGrid :pockets="pinnedPockets" />
 
         <QuickAdd :accounts="budgetData.accounts" :activeView="activeView" :pockets="budgetData.pockets"
           @added="refreshData" />
@@ -173,10 +178,18 @@ async function refreshData() {
           :activeView="activeView" @updated="refreshData" />
       </section>
 
+      <!-- Pockets -->
+      <section v-else-if="currentPage === 'pockets'" class="page-content">
+        <PocketsManager :pockets="displayPockets" @updated="refreshData" />
+      </section>
+
       <!-- Bottom Navigation Bar -->
       <nav class="bottom-nav">
         <button :class="{ active: currentPage === 'dashboard' }" @click="currentPage = 'dashboard'">
           Dashboard
+        </button>
+        <button :class="{ active: currentPage === 'pockets' }" @click="currentPage = 'pockets'">
+          Pockets
         </button>
         <button :class="{ active: currentPage === 'transactions' }" @click="currentPage = 'transactions'">
           Transactions
@@ -185,7 +198,6 @@ async function refreshData() {
           Rules
         </button>
       </nav>
-
     </div>
   </main>
 </template>
@@ -279,7 +291,8 @@ async function refreshData() {
 
 .bottom-nav button {
   flex: 1;
-  padding: 0.75rem;
+  padding: 0.65rem 0.25rem;
+  font-size: 0.85rem;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -287,6 +300,7 @@ async function refreshData() {
   font-weight: bold;
   cursor: pointer;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .bottom-nav button.active {

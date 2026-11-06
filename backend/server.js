@@ -22,7 +22,8 @@ async function initDb(retries = 10) {
         );
         CREATE TABLE IF NOT EXISTS pockets (
           id TEXT PRIMARY KEY,
-          name TEXT NOT NULL
+          name TEXT NOT NULL,
+          pinned INTEGER NOT NULL DEFAULT 1
         );
         CREATE TABLE IF NOT EXISTS budget_rules (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,6 +42,13 @@ async function initDb(retries = 10) {
           date TEXT NOT NULL
         );
       `);
+
+            // Safely add 'pinned' column if upgrading an existing database
+            try {
+                await db.execute('ALTER TABLE pockets ADD COLUMN pinned INTEGER NOT NULL DEFAULT 1');
+            } catch (e) {
+                // Column already exists, ignore
+            }
 
             const countRes = await db.execute('SELECT COUNT(*) as count FROM accounts');
             if (Number(countRes.rows[0].count) === 0) {
@@ -209,6 +217,61 @@ app.delete('/api/rules/:id', async (req, res) => {
             sql: 'DELETE FROM budget_rules WHERE id = ?',
             args: [Number(req.params.id)]
         });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create a new pocket
+app.post('/api/pockets', async (req, res) => {
+    try {
+        const { name, pinned = 1 } = req.body;
+        if (!name || !name.trim()) {
+            return res.status(400).json({ error: 'Pocket name is required' });
+        }
+
+        const cleanName = name.trim();
+        const baseSlug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const id = `${baseSlug || 'pocket'}-${Date.now().toString().slice(-4)}`;
+        const isPinned = pinned ? 1 : 0;
+
+        await db.execute({
+            sql: 'INSERT INTO pockets (id, name, pinned) VALUES (?, ?, ?)',
+            args: [id, cleanName, isPinned]
+        });
+
+        res.status(201).json({
+            success: true,
+            pocket: { id, name: cleanName, pinned: isPinned }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Toggle pocket pinned status on Dashboard
+app.patch('/api/pockets/:id', async (req, res) => {
+    try {
+        const { pinned } = req.body;
+        await db.execute({
+            sql: 'UPDATE pockets SET pinned = ? WHERE id = ?',
+            args: [pinned ? 1 : 0, req.params.id]
+        });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete a pocket
+app.delete('/api/pockets/:id', async (req, res) => {
+    try {
+        const pocketId = req.params.id;
+        await db.batch([
+            { sql: 'DELETE FROM pockets WHERE id = ?', args: [pocketId] },
+            { sql: 'DELETE FROM budget_rules WHERE pocketId = ?', args: [pocketId] }
+        ], 'write');
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
