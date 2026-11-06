@@ -16,7 +16,7 @@ jobs:
           username: ${{ secrets.USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            cd /dev/BudgetHelper
+            cd ~/dev/BudgetHelper
             git pull origin main
             docker compose up -d --build --remove-orphans
             docker image prune -f
