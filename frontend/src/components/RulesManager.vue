@@ -116,6 +116,7 @@ async function deleteRule(id) {
   gap: 1.25rem;
   padding-bottom: 5rem;
 }
+
 .rule-form {
   display: flex;
   flex-direction: column;
@@ -125,26 +126,31 @@ async function deleteRule(id) {
   border-radius: 12px;
   border: 1px solid var(--border);
 }
+
 .rule-form h3 {
   margin: 0 0 0.25rem 0;
   font-size: 1rem;
   color: var(--text-h);
   text-align: left;
 }
+
 .rule-form .row {
   display: flex;
   gap: 0.5rem;
 }
+
 .rule-form input,
 .rule-form select,
 .rule-form button {
   flex: 1;
+  min-width: 0;
   padding: 0.6rem;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-h);
 }
+
 .rule-form button {
   background: var(--accent);
   color: white;
@@ -152,16 +158,19 @@ async function deleteRule(id) {
   font-weight: bold;
   cursor: pointer;
 }
+
 .rules-list {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
+
 .empty-state {
   text-align: center;
   color: var(--text);
   padding: 2rem 0;
 }
+
 .rule-item {
   display: flex;
   justify-content: space-between;
@@ -171,29 +180,35 @@ async function deleteRule(id) {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+
 .rule-info {
   display: flex;
   flex-direction: column;
   text-align: left;
 }
+
 .rule-info strong {
   color: var(--text-h);
 }
+
 .rule-info small {
   color: var(--text);
   font-size: 0.8rem;
   margin-top: 0.25rem;
   text-transform: capitalize;
 }
+
 .rule-actions {
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
+
 .rule-amount {
   font-weight: bold;
   color: var(--text-h);
 }
+
 .delete-btn {
   background: transparent;
   border: 1px solid var(--border);
@@ -206,6 +221,7 @@ async function deleteRule(id) {
   align-items: center;
   justify-content: center;
 }
+
 .delete-btn:hover {
   color: #ef4444;
   border-color: #ef4444;

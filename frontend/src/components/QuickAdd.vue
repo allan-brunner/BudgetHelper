@@ -56,7 +56,7 @@ async function submitTx() {
         </option>
       </select>
     </div>
-    
+
     <div class="row">
       <select v-if="activeView === 'shared'" v-model="accountId">
         <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
@@ -72,8 +72,38 @@ async function submitTx() {
 </template>
 
 <style scoped>
-.quick-add { display: flex; flex-direction: column; gap: 0.5rem; background: var(--code-bg); padding: 1rem; border-radius: 12px; border: 1px solid var(--border); }
-.quick-add .row { display: flex; gap: 0.5rem; }
-.quick-add input, .quick-add select, .quick-add button { flex: 1; padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text-h); }
-.quick-add button { background: var(--accent); color: white; border: none; font-weight: bold; cursor: pointer; }
+.quick-add {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--code-bg);
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.quick-add .row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.quick-add input,
+.quick-add select,
+.quick-add button {
+  flex: 1;
+  min-width: 0;
+  padding: 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.quick-add button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+}
 </style>

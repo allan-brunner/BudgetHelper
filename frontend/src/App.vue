@@ -32,7 +32,7 @@ const cycleInfo = computed(() => {
   }
 
   const cycleStart = new Date(startYear, startMonth, CYCLE_START_DAY)
-  
+
   // Calculate next cycle start
   const nextMonth = startMonth === 11 ? 0 : startMonth + 1
   const nextYear = startMonth === 11 ? startYear + 1 : startYear
@@ -40,7 +40,7 @@ const cycleInfo = computed(() => {
 
   const daysInCycle = (cycleEnd - cycleStart) / (1000 * 60 * 60 * 24)
   const daysElapsed = (today - cycleStart) / (1000 * 60 * 60 * 24)
-  
+
   const currentWeekIndex = Math.floor(daysElapsed / 7) + 1
   const totalWeeks = daysInCycle / 7
   const weeksRemaining = Math.max(0, Math.ceil(totalWeeks - currentWeekIndex))
@@ -57,7 +57,7 @@ async function handleLoginSuccess() {
 
 const currentDisplayBalance = computed(() => {
   if (!budgetData.value) return '0.00'
-  const relevantBalances = budgetData.value.pocketBalances.filter(b => 
+  const relevantBalances = budgetData.value.pocketBalances.filter(b =>
     activeView.value === 'shared' ? true : b.accountId === activeView.value
   )
   return relevantBalances.reduce((sum, b) => sum + b.balance, 0).toFixed(2)
@@ -70,21 +70,21 @@ const balanceTitle = computed(() => {
 // Dynamic Targets & Predictions
 const displayPockets = computed(() => {
   if (!budgetData.value) return []
-  
+
   return budgetData.value.pockets.map(pocket => {
     // Current Balance
-    const balances = budgetData.value.pocketBalances.filter(b => 
-      b.pocketId === pocket.id && 
+    const balances = budgetData.value.pocketBalances.filter(b =>
+      b.pocketId === pocket.id &&
       (activeView.value === 'shared' || b.accountId === activeView.value)
     )
     const currentBalance = balances.reduce((sum, b) => sum + b.balance, 0)
 
     // Expected Rules
-    const rules = budgetData.value.budgetRules.filter(r => 
-      r.pocketId === pocket.id && 
+    const rules = budgetData.value.budgetRules.filter(r =>
+      r.pocketId === pocket.id &&
       (activeView.value === 'shared' || r.accountId === activeView.value)
     )
-    
+
     // Calculate Target based on timeframe toggle
     const target = rules.reduce((sum, rule) => {
       if (timeframe.value === 'week') {
@@ -128,20 +128,14 @@ async function refreshData() {
     <PinPad v-if="!isAuthenticated" @success="handleLoginSuccess" />
 
     <div v-else-if="budgetData" class="app-layout">
-      
+
       <!-- Global Header -->
-      <AccountTabs 
-        :accounts="budgetData.accounts" 
-        :activeView="activeView" 
-        @update:activeView="(val) => activeView = val" 
-      />
+      <AccountTabs :accounts="budgetData.accounts" :activeView="activeView"
+        @update:activeView="(val) => activeView = val" />
 
       <!-- Dashboard -->
       <section v-if="currentPage === 'dashboard'" class="page-content">
-        <BalanceCard 
-          :title="balanceTitle" 
-          :amount="currentDisplayBalance" 
-        />
+        <BalanceCard :title="balanceTitle" :amount="currentDisplayBalance" />
 
         <div class="controls-row">
           <div class="cycle-info">
@@ -154,50 +148,31 @@ async function refreshData() {
         </div>
 
         <PocketGrid :pockets="displayPockets" />
-        
-        <QuickAdd 
-          :accounts="budgetData.accounts" 
-          :activeView="activeView" 
-          :pockets="budgetData.pockets" 
-          @added="refreshData"
-        />
+
+        <QuickAdd :accounts="budgetData.accounts" :activeView="activeView" :pockets="budgetData.pockets"
+          @added="refreshData" />
       </section>
 
       <!-- Transactions -->
       <section v-else-if="currentPage === 'transactions'" class="page-content">
-        <TransactionList 
-          :transactions="budgetData.transactions"
-          :accounts="budgetData.accounts"
-          :pockets="budgetData.pockets"
-          :activeView="activeView"
-        />
+        <TransactionList :transactions="budgetData.transactions" :accounts="budgetData.accounts"
+          :pockets="budgetData.pockets" :activeView="activeView" />
       </section>
 
       <section v-else-if="currentPage === 'rules'" class="page-content">
-        <RulesManager
-          :rules="budgetData.budgetRules"
-          :accounts="budgetData.accounts"
-          :pockets="budgetData.pockets"
-          :activeView="activeView"
-          @updated="refreshData"
-        />
+        <RulesManager :rules="budgetData.budgetRules" :accounts="budgetData.accounts" :pockets="budgetData.pockets"
+          :activeView="activeView" @updated="refreshData" />
       </section>
 
       <!-- Bottom Navigation Bar -->
       <nav class="bottom-nav">
-        <button 
-          :class="{ active: currentPage === 'dashboard' }" 
-          @click="currentPage = 'dashboard'">
+        <button :class="{ active: currentPage === 'dashboard' }" @click="currentPage = 'dashboard'">
           Dashboard
         </button>
-        <button 
-          :class="{ active: currentPage === 'transactions' }" 
-          @click="currentPage = 'transactions'">
+        <button :class="{ active: currentPage === 'transactions' }" @click="currentPage = 'transactions'">
           Transactions
         </button>
-        <button 
-          :class="{ active: currentPage === 'rules' }" 
-          @click="currentPage = 'rules'">
+        <button :class="{ active: currentPage === 'rules' }" @click="currentPage = 'rules'">
           Rules
         </button>
       </nav>
@@ -208,12 +183,14 @@ async function refreshData() {
 
 <style scoped>
 .mobile-container {
-  max-width: 420px;
-  margin: 0 auto;
-  padding: 1.5rem 1rem;
+  width: 100%;
+  padding: 1.5rem 0;
   font-family: var(--sans);
   color: var(--text);
+  display: flex;
+  flex-direction: column;
 }
+
 .dashboard {
   display: flex;
   flex-direction: column;
@@ -230,16 +207,19 @@ async function refreshData() {
   border-radius: 8px;
   border: 1px solid var(--border);
 }
+
 .cycle-info {
   color: var(--text-h);
   font-weight: 500;
 }
+
 .toggle-group {
   display: flex;
   background: var(--border);
   border-radius: 6px;
   padding: 2px;
 }
+
 .toggle-group button {
   border: none;
   background: transparent;
@@ -250,11 +230,14 @@ async function refreshData() {
   cursor: pointer;
   transition: all 0.2s;
 }
+
 .toggle-group button.active {
   background: var(--accent);
   color: #fff;
 }
+
 .app-layout {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
@@ -262,10 +245,11 @@ async function refreshData() {
 }
 
 .page-content {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  padding-bottom: 4rem; /* Ensures scrolling doesn't hide behind nav */
+  padding-bottom: 4rem;
 }
 
 /* Bottom Navigation */
@@ -275,7 +259,7 @@ async function refreshData() {
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
-  max-width: 420px; /* Matches mobile-container */
+  max-width: 480px;
   display: flex;
   background: var(--bg);
   border-top: 1px solid var(--border);
