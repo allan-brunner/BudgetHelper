@@ -52,18 +52,28 @@ async function initDb(retries = 10) {
 
             const countRes = await db.execute('SELECT COUNT(*) as count FROM accounts');
             if (Number(countRes.rows[0].count) === 0) {
+                const acc1Id = process.env.ACC1_ID || 'john';
+                const acc1Name = process.env.ACC1_NAME || 'John';
+                const acc2Id = process.env.ACC2_ID || 'jane';
+                const acc2Name = process.env.ACC2_NAME || 'Jane';
+
                 await db.batch([
-                    { sql: 'INSERT INTO accounts (id, name) VALUES (?, ?)', args: ['john', 'John'] },
-                    { sql: 'INSERT INTO accounts (id, name) VALUES (?, ?)', args: ['jane', 'Jane'] },
-                    { sql: 'INSERT INTO pockets (id, name) VALUES (?, ?)', args: ['food', 'Food'] },
-                    { sql: 'INSERT INTO pockets (id, name) VALUES (?, ?)', args: ['hobbies', 'Hobbies'] },
-                    { sql: 'INSERT INTO pockets (id, name) VALUES (?, ?)', args: ['transport', 'Transport'] },
-                    { sql: 'INSERT INTO budget_rules (accountId, pocketId, amount, frequency) VALUES (?, ?, ?, ?)', args: ['john', 'food', 200, 'monthly'] },
-                    { sql: 'INSERT INTO budget_rules (accountId, pocketId, amount, frequency) VALUES (?, ?, ?, ?)', args: ['jane', 'food', 50, 'weekly'] },
-                    { sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)', args: ['john', 'food', 'debit', 45.40, 'Groceries', '2026-11-04'] },
-                    { sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)', args: ['john', 'food', 'credit', 250.00, 'Monthly Allocation', '2026-11-01'] },
-                    { sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)', args: ['jane', 'food', 'credit', 50.00, 'Weekly Allocation', '2026-11-01'] }
+                    { sql: 'INSERT INTO accounts (id, name) VALUES (?, ?)', args: [acc1Id, acc1Name] },
+                    { sql: 'INSERT INTO accounts (id, name) VALUES (?, ?)', args: [acc2Id, acc2Name] }
                 ], 'write');
+
+                if (acc1Id === 'john' && acc2Id === 'jane') {
+                    await db.batch([
+                        { sql: 'INSERT INTO pockets (id, name, pinned) VALUES (?, ?, 1)', args: ['food', 'Food'] },
+                        { sql: 'INSERT INTO pockets (id, name, pinned) VALUES (?, ?, 1)', args: ['hobbies', 'Hobbies'] },
+                        { sql: 'INSERT INTO pockets (id, name, pinned) VALUES (?, ?, 1)', args: ['transport', 'Transport'] },
+                        { sql: 'INSERT INTO budget_rules (accountId, pocketId, amount, frequency) VALUES (?, ?, ?, ?)', args: ['john', 'food', 200, 'monthly'] },
+                        { sql: 'INSERT INTO budget_rules (accountId, pocketId, amount, frequency) VALUES (?, ?, ?, ?)', args: ['jane', 'food', 50, 'weekly'] },
+                        { sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)', args: ['john', 'food', 'debit', 45.40, 'Groceries', '2026-11-04'] },
+                        { sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)', args: ['john', 'food', 'credit', 250.00, 'Monthly Allocation', '2026-11-01'] },
+                        { sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)', args: ['jane', 'food', 'credit', 50.00, 'Weekly Allocation', '2026-11-01'] }
+                    ], 'write');
+                }
             }
             console.log('Connected to SQLite container and initialized schema.');
             return;
@@ -82,7 +92,7 @@ app.use(express.json());
 app.post('/api/auth', (req, res) => {
     const { pin } = req.body;
     if (pin === APP_PIN) {
-        return res.json({ authenticated: true, token: 'mock-session-token' });
+        return res.json({ authenticated: true, token: 'budget-session-token' });
     }
     return res.status(401).json({ authenticated: false, error: 'Invalid PIN' });
 });
