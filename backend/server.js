@@ -84,7 +84,7 @@ app.get('/api/budget', async (req, res) => {
         const [accounts, pockets, budgetRules, transactions, pocketBalances] = await Promise.all([
             db.execute('SELECT * FROM accounts'),
             db.execute('SELECT * FROM pockets'),
-            db.execute('SELECT accountId, pocketId, amount, frequency FROM budget_rules'),
+            db.execute('SELECT id, accountId, pocketId, amount, frequency FROM budget_rules'),
             db.execute('SELECT * FROM transactions ORDER BY date DESC, id DESC'),
             db.execute(`
         SELECT 
@@ -136,6 +136,48 @@ app.post('/api/transactions', async (req, res) => {
                 date
             }
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Add a new budget rule
+app.post('/api/rules', async (req, res) => {
+    try {
+        const { accountId, pocketId, amount, frequency = 'monthly' } = req.body;
+        if (!accountId || !pocketId || amount === undefined || !frequency) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        const numAmount = Number(amount);
+        const info = await db.execute({
+            sql: 'INSERT INTO budget_rules (accountId, pocketId, amount, frequency) VALUES (?, ?, ?, ?)',
+            args: [accountId, pocketId, numAmount, frequency]
+        });
+
+        res.status(201).json({
+            success: true,
+            rule: {
+                id: Number(info.lastInsertRowid),
+                accountId,
+                pocketId,
+                amount: numAmount,
+                frequency
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete a budget rule
+app.delete('/api/rules/:id', async (req, res) => {
+    try {
+        await db.execute({
+            sql: 'DELETE FROM budget_rules WHERE id = ?',
+            args: [Number(req.params.id)]
+        });
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

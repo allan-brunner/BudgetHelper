@@ -6,6 +6,7 @@ import BalanceCard from './components/BalanceCard.vue'
 import PocketGrid from './components/PocketGrid.vue'
 import QuickAdd from './components/QuickAdd.vue'
 import TransactionList from './components/TransactionList.vue'
+import RulesManager from './components/RulesManager.vue'
 
 const isAuthenticated = ref(false)
 const budgetData = ref(null)
@@ -172,6 +173,16 @@ async function refreshData() {
         />
       </section>
 
+      <section v-else-if="currentPage === 'rules'" class="page-content">
+        <RulesManager
+          :rules="budgetData.budgetRules"
+          :accounts="budgetData.accounts"
+          :pockets="budgetData.pockets"
+          :activeView="activeView"
+          @updated="refreshData"
+        />
+      </section>
+
       <!-- Bottom Navigation Bar -->
       <nav class="bottom-nav">
         <button 
@@ -183,6 +194,11 @@ async function refreshData() {
           :class="{ active: currentPage === 'transactions' }" 
           @click="currentPage = 'transactions'">
           Transactions
+        </button>
+        <button 
+          :class="{ active: currentPage === 'rules' }" 
+          @click="currentPage = 'rules'">
+          Rules
         </button>
       </nav>
 
