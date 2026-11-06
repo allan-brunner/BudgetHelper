@@ -116,9 +116,28 @@ app.post('/api/transactions', async (req, res) => {
         }
 
         const date = new Date().toISOString().split('T')[0];
-        const cleanLabel = label || 'Quick Entry';
         const numAmount = Number(amount);
 
+        if (type === 'allocate') {
+            if (pocketId === 'unallocated') {
+                return res.status(400).json({ error: 'Select a target pocket to allocate funds' });
+            }
+            const cleanLabel = label || 'Pocket Allocation';
+            await db.batch([
+                {
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
+                    args: [accountId, 'unallocated', 'debit', numAmount, `${cleanLabel} (Out)`, date]
+                },
+                {
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
+                    args: [accountId, pocketId, 'credit', numAmount, `${cleanLabel} (In)`, date]
+                }
+            ], 'write');
+
+            return res.status(201).json({ success: true });
+        }
+
+        const cleanLabel = label || 'Quick Entry';
         const info = await db.execute({
             sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
             args: [accountId, pocketId, type, numAmount, cleanLabel, date]

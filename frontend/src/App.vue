@@ -63,6 +63,15 @@ const currentDisplayBalance = computed(() => {
   return relevantBalances.reduce((sum, b) => sum + b.balance, 0).toFixed(2)
 })
 
+const unallocatedBalance = computed(() => {
+  if (!budgetData.value) return '0.00'
+  const relevantBalances = budgetData.value.pocketBalances.filter(b =>
+    (!b.pocketId || b.pocketId === 'unallocated') &&
+    (activeView.value === 'shared' ? true : b.accountId === activeView.value)
+  )
+  return relevantBalances.reduce((sum, b) => sum + b.balance, 0).toFixed(2)
+})
+
 const balanceTitle = computed(() => {
   return activeView.value === 'shared' ? 'Total Couple Balance' : 'Personal Balance'
 })
@@ -135,7 +144,7 @@ async function refreshData() {
 
       <!-- Dashboard -->
       <section v-if="currentPage === 'dashboard'" class="page-content">
-        <BalanceCard :title="balanceTitle" :amount="currentDisplayBalance" />
+        <BalanceCard :title="balanceTitle" :amount="currentDisplayBalance" :unallocated="unallocatedBalance" />
 
         <div class="controls-row">
           <div class="cycle-info">

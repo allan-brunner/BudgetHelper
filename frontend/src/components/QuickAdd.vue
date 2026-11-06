@@ -9,19 +9,26 @@ const props = defineProps({
 
 const emit = defineEmits(['added'])
 
-const type = ref('debit')
+const type = ref('debit') // 'debit', 'credit', or 'allocate'
 const amount = ref('')
 const label = ref('')
-const pocketId = ref(props.pockets[0]?.id || '')
+const pocketId = ref('unallocated')
 const accountId = ref(props.activeView === 'shared' ? props.accounts[0]?.id : props.activeView)
 
-// If user changes tabs in App.vue, auto-select their account in the form
 watch(() => props.activeView, (newVal) => {
   if (newVal !== 'shared') accountId.value = newVal
 })
 
+// Force a valid pocket selection when moving money into a pocket
+watch(type, (newType) => {
+  if (newType === 'allocate' && pocketId.value === 'unallocated') {
+    pocketId.value = props.pockets[0]?.id || ''
+  }
+})
+
 async function submitTx() {
   if (!amount.value || !pocketId.value) return
+  const numAmount = parseFloat(amount.value)
 
   const res = await fetch('/api/transactions', {
     method: 'POST',
@@ -30,15 +37,15 @@ async function submitTx() {
       accountId: accountId.value,
       pocketId: pocketId.value,
       type: type.value,
-      amount: parseFloat(amount.value),
-      label: label.value || 'Quick Entry'
+      amount: numAmount,
+      label: label.value || (pocketId.value === 'unallocated' ? 'Account Entry' : 'Quick Entry')
     })
   })
 
   if (res.ok) {
     amount.value = ''
     label.value = ''
-    emit('added') // Tells App.vue to refresh data
+    emit('added')
   }
 }
 </script>
@@ -49,8 +56,12 @@ async function submitTx() {
       <select v-model="type">
         <option value="debit">Debit (-)</option>
         <option value="credit">Credit (+)</option>
+        <option value="allocate">Move to Pocket (→)</option>
       </select>
       <select v-model="pocketId">
+        <option v-if="type !== 'allocate'" value="unallocated">
+          No Pocket (Account)
+        </option>
         <option v-for="p in pockets" :key="p.id" :value="p.id">
           {{ p.name }}
         </option>
@@ -66,8 +77,10 @@ async function submitTx() {
       <input v-model="amount" type="number" step="0.01" placeholder="Amount" required />
     </div>
 
-    <input v-model="label" type="text" placeholder="Label (e.g. Groceries)" />
-    <button type="submit">Add Row</button>
+    <input v-model="label" type="text" placeholder="Label (e.g. Salary, Groceries)" />
+    <button type="submit">
+      {{ type === 'allocate' ? 'Move Money' : 'Add Row' }}
+    </button>
   </form>
 </template>
 
