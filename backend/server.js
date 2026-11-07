@@ -217,19 +217,55 @@ app.get('/api/budget', async (req, res) => {
 
 app.post('/api/transactions', async (req, res) => {
     try {
-        const { accountId, pocketId, targetPocketId, type = 'debit', amount, label } = req.body;
+        const {
+            accountId,
+            pocketId,
+            targetAccountId,
+            targetPocketId,
+            splits,
+            type = 'debit',
+            amount,
+            label
+        } = req.body;
+
+        const date = new Date().toISOString().split('T')[0];
+
+        // Handle 50/50 or Custom Bill Splits
+        if (type === 'split') {
+            if (!pocketId || !Array.isArray(splits) || splits.length === 0) {
+                return res.status(400).json({ error: 'Missing split details' });
+            }
+
+            const cleanLabel = (label && label.trim()) ? label.trim() : 'Shared Bill';
+            const queries = splits
+                .filter(s => s.accountId && Number(s.amount) > 0)
+                .map(s => ({
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
+                    args: [s.accountId, pocketId, 'debit', Number(s.amount), `${cleanLabel} (Split)`, date]
+                }));
+
+            if (queries.length === 0) {
+                return res.status(400).json({ error: 'Split amounts must be greater than 0' });
+            }
+
+            await db.batch(queries, 'write');
+            return res.status(201).json({ success: true });
+        }
+
         if (!accountId || !pocketId || amount === undefined) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        const date = new Date().toISOString().split('T')[0];
         const numAmount = Number(amount);
 
+        // Handle Transfers (Same Account or Partner-to-Partner)
         if (type === 'transfer') {
-            if (!targetPocketId || pocketId === targetPocketId) {
-                return res.status(400).json({ error: 'Select two different pockets/accounts for transfer' });
+            const destAccountId = targetAccountId || accountId;
+            if (!targetPocketId || (accountId === destAccountId && pocketId === targetPocketId)) {
+                return res.status(400).json({ error: 'Select a different destination account or pocket' });
             }
-            const cleanLabel = label || 'Transfer';
+
+            const cleanLabel = (label && label.trim()) ? label.trim() : 'Transfer';
             await db.batch([
                 {
                     sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
@@ -237,14 +273,15 @@ app.post('/api/transactions', async (req, res) => {
                 },
                 {
                     sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-                    args: [accountId, targetPocketId, 'credit', numAmount, `${cleanLabel} (←)`, date]
+                    args: [destAccountId, targetPocketId, 'credit', numAmount, `${cleanLabel} (←)`, date]
                 }
             ], 'write');
 
             return res.status(201).json({ success: true });
         }
 
-        const cleanLabel = label || 'Quick Entry';
+        // Standard Debit (-) or Credit (+)
+        const cleanLabel = (label && label.trim()) ? label.trim() : 'Quick Entry';
         const info = await db.execute({
             sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
             args: [accountId, pocketId, type, numAmount, cleanLabel, date]
