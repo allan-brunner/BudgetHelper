@@ -1,11 +1,18 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const crypto = require('crypto');
 const { createClient } = require('@libsql/client');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_PIN = process.env.APP_PIN || '1234';
+
+// Generates a unique token tied to your secret APP_PIN
+const SESSION_TOKEN = crypto
+    .createHmac('sha256', APP_PIN)
+    .update('budgethelper-auth-token')
+    .digest('hex');
 
 // Connects to the isolated SQLite container over db_net
 const db = createClient({
@@ -103,9 +110,17 @@ app.use(express.json());
 app.post('/api/auth', (req, res) => {
     const { pin } = req.body;
     if (pin === APP_PIN) {
-        return res.json({ authenticated: true, token: 'budget-session-token' });
+        return res.json({ authenticated: true, token: SESSION_TOKEN });
     }
     return res.status(401).json({ authenticated: false, error: 'Invalid PIN' });
+});
+
+app.use('/api', (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== `Bearer ${SESSION_TOKEN}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    next();
 });
 
 function getNextDate(dateStr, frequency) {

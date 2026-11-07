@@ -9,7 +9,8 @@ defineProps({
     <div v-for="pocket in pockets" :key="pocket.id" class="pocket-card">
       <div class="pocket-header">
         <small>{{ pocket.name }}</small>
-        <strong>{{ pocket.balance.toFixed(2) }} <span class="target">/ {{ pocket.target.toFixed(0) }} €</span></strong>
+        <strong>{{ pocket.balance.toFixed(2) }} <span class="target">/ {{ pocket.target.toFixed(0) }}
+            CHF</span></strong>
       </div>
 
       <!-- Split Progress Bar -->
