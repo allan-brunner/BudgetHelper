@@ -41,6 +41,17 @@ async function initDb(retries = 10) {
           label TEXT NOT NULL,
           date TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS recurring_transactions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          accountId TEXT NOT NULL,
+          pocketId TEXT NOT NULL,
+          targetPocketId TEXT,
+          type TEXT NOT NULL,
+          amount REAL NOT NULL,
+          label TEXT NOT NULL,
+          frequency TEXT NOT NULL,
+          nextDate TEXT NOT NULL
+        );
       `);
 
             // Safely add 'pinned' column if upgrading an existing database
@@ -97,9 +108,70 @@ app.post('/api/auth', (req, res) => {
     return res.status(401).json({ authenticated: false, error: 'Invalid PIN' });
 });
 
+function getNextDate(dateStr, frequency) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const d = new Date(Date.UTC(year, month - 1, day));
+
+    if (frequency === 'weekly') {
+        d.setUTCDate(d.getUTCDate() + 7);
+    } else if (frequency === 'monthly') {
+        d.setUTCMonth(d.getUTCMonth() + 1);
+    } else if (frequency === 'semester') {
+        d.setUTCMonth(d.getUTCMonth() + 6);
+    } else if (frequency === 'yearly') {
+        d.setUTCFullYear(d.getUTCFullYear() + 1);
+    }
+    return d.toISOString().split('T')[0];
+}
+
+async function processRecurringTransactions() {
+    const today = new Date().toISOString().split('T')[0];
+    const dueRes = await db.execute({
+        sql: 'SELECT * FROM recurring_transactions WHERE nextDate <= ?',
+        args: [today]
+    });
+
+    if (dueRes.rows.length === 0) return;
+
+    const queries = [];
+    for (const item of dueRes.rows) {
+        let triggerDate = item.nextDate;
+
+        // Catch up on all occurrences up to today
+        while (triggerDate <= today) {
+            if (item.type === 'transfer' && item.targetPocketId) {
+                queries.push({
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
+                    args: [item.accountId, item.pocketId, 'debit', Number(item.amount), `${item.label} (Auto →)`, triggerDate]
+                });
+                queries.push({
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
+                    args: [item.accountId, item.targetPocketId, 'credit', Number(item.amount), `${item.label} (Auto ←)`, triggerDate]
+                });
+            } else {
+                queries.push({
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
+                    args: [item.accountId, item.pocketId, item.type, Number(item.amount), `${item.label} (Auto)`, triggerDate]
+                });
+            }
+            triggerDate = getNextDate(triggerDate, item.frequency);
+        }
+
+        queries.push({
+            sql: 'UPDATE recurring_transactions SET nextDate = ? WHERE id = ?',
+            args: [triggerDate, item.id]
+        });
+    }
+
+    if (queries.length > 0) {
+        await db.batch(queries, 'write');
+    }
+}
 app.get('/api/budget', async (req, res) => {
     try {
-        const [accounts, pockets, budgetRules, transactions, pocketBalances] = await Promise.all([
+        await processRecurringTransactions();
+
+        const [accounts, pockets, budgetRules, transactions, pocketBalances, recurringTransactions] = await Promise.all([
             db.execute('SELECT * FROM accounts'),
             db.execute('SELECT * FROM pockets'),
             db.execute('SELECT id, accountId, pocketId, amount, frequency FROM budget_rules'),
@@ -111,7 +183,8 @@ app.get('/api/budget', async (req, res) => {
           SUM(CASE WHEN type = 'credit' THEN amount ELSE -amount END) as balance
         FROM transactions
         GROUP BY accountId, pocketId
-      `)
+      `),
+            db.execute('SELECT * FROM recurring_transactions ORDER BY nextDate ASC, id ASC')
         ]);
 
         res.json({
@@ -119,7 +192,8 @@ app.get('/api/budget', async (req, res) => {
             pockets: pockets.rows,
             budgetRules: budgetRules.rows,
             transactions: transactions.rows,
-            pocketBalances: pocketBalances.rows
+            pocketBalances: pocketBalances.rows,
+            recurringTransactions: recurringTransactions.rows
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -183,6 +257,114 @@ app.delete('/api/transactions/:id', async (req, res) => {
     try {
         await db.execute({
             sql: 'DELETE FROM transactions WHERE id = ?',
+            args: [Number(req.params.id)]
+        });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Add a recurring transaction
+app.post('/api/recurring', async (req, res) => {
+    try {
+        const {
+            accountId,
+            pocketId,
+            targetPocketId = null,
+            type = 'debit',
+            amount,
+            label,
+            frequency = 'monthly',
+            nextDate
+        } = req.body;
+
+        if (!accountId || !pocketId || amount === undefined || !nextDate || !frequency) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        if (type === 'transfer' && (!targetPocketId || pocketId === targetPocketId)) {
+            return res.status(400).json({ error: 'Select two different buckets for transfer' });
+        }
+
+        const cleanLabel = (label && label.trim()) ? label.trim() : 'Scheduled Entry';
+        const numAmount = Number(amount);
+
+        const info = await db.execute({
+            sql: `INSERT INTO recurring_transactions 
+                  (accountId, pocketId, targetPocketId, type, amount, label, frequency, nextDate) 
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [accountId, pocketId, targetPocketId, type, numAmount, cleanLabel, frequency, nextDate]
+        });
+
+        res.status(201).json({
+            success: true,
+            id: Number(info.lastInsertRowid)
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Manually trigger a recurring transaction today and skip the next scheduled occurrence
+app.post('/api/recurring/:id/trigger', async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const result = await db.execute({
+            sql: 'SELECT * FROM recurring_transactions WHERE id = ?',
+            args: [id]
+        });
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Scheduled transaction not found' });
+        }
+
+        const item = result.rows[0];
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Advance from item.nextDate (not today) so the anchor day (e.g. the 20th) never drifts
+        const newNextDate = getNextDate(item.nextDate, item.frequency);
+        const queries = [];
+
+        if (item.type === 'transfer' && item.targetPocketId) {
+            queries.push({
+                sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
+                args: [item.accountId, item.pocketId, 'debit', Number(item.amount), `${item.label} (→)`, today]
+            });
+            queries.push({
+                sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
+                args: [item.accountId, item.targetPocketId, 'credit', Number(item.amount), `${item.label} (←)`, today]
+            });
+        } else {
+            queries.push({
+                sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
+                args: [item.accountId, item.pocketId, item.type, Number(item.amount), item.label, today]
+            });
+        }
+
+        // Skip the upcoming occurrence by advancing nextDate to the following cycle
+        queries.push({
+            sql: 'UPDATE recurring_transactions SET nextDate = ? WHERE id = ?',
+            args: [newNextDate, id]
+        });
+
+        await db.batch(queries, 'write');
+
+        res.json({
+            success: true,
+            triggeredDate: today,
+            nextDate: newNextDate
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete a recurring transaction
+app.delete('/api/recurring/:id', async (req, res) => {
+    try {
+        await db.execute({
+            sql: 'DELETE FROM recurring_transactions WHERE id = ?',
             args: [Number(req.params.id)]
         });
         res.json({ success: true });

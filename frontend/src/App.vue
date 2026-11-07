@@ -8,6 +8,7 @@ import QuickAdd from './components/QuickAdd.vue'
 import TransactionList from './components/TransactionList.vue'
 import RulesManager from './components/RulesManager.vue'
 import PocketsManager from './components/PocketsManager.vue'
+import RecurringManager from './components/RecurringManager.vue'
 
 const isAuthenticated = ref(false)
 const budgetData = ref(null)
@@ -173,6 +174,13 @@ async function refreshData() {
           :pockets="budgetData.pockets" :activeView="activeView" @updated="refreshData" />
       </section>
 
+      <!-- Recurring / Automatic Transactions -->
+      <section v-else-if="currentPage === 'recurring'" class="page-content">
+        <RecurringManager :recurring="budgetData.recurringTransactions" :accounts="budgetData.accounts"
+          :pockets="budgetData.pockets" :activeView="activeView" @updated="refreshData" />
+      </section>
+
+      <!-- Rules -->
       <section v-else-if="currentPage === 'rules'" class="page-content">
         <RulesManager :rules="budgetData.budgetRules" :accounts="budgetData.accounts" :pockets="budgetData.pockets"
           :activeView="activeView" @updated="refreshData" />
@@ -186,13 +194,16 @@ async function refreshData() {
       <!-- Bottom Navigation Bar -->
       <nav class="bottom-nav">
         <button :class="{ active: currentPage === 'dashboard' }" @click="currentPage = 'dashboard'">
-          Dashboard
+          Home
         </button>
         <button :class="{ active: currentPage === 'pockets' }" @click="currentPage = 'pockets'">
           Pockets
         </button>
         <button :class="{ active: currentPage === 'transactions' }" @click="currentPage = 'transactions'">
-          Transactions
+          History
+        </button>
+        <button :class="{ active: currentPage === 'recurring' }" @click="currentPage = 'recurring'">
+          Auto
         </button>
         <button :class="{ active: currentPage === 'rules' }" @click="currentPage = 'rules'">
           Rules
@@ -291,8 +302,9 @@ async function refreshData() {
 
 .bottom-nav button {
   flex: 1;
-  padding: 0.65rem 0.25rem;
-  font-size: 0.85rem;
+  min-width: 0;
+  padding: 0.6rem 0.15rem;
+  font-size: 0.8rem;
   border: none;
   border-radius: 8px;
   background: transparent;
