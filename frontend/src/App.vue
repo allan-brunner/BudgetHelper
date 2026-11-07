@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import PinPad from './components/PinPad.vue'
 import AccountTabs from './components/AccountTabs.vue'
 import BalanceCard from './components/BalanceCard.vue'
@@ -52,10 +52,21 @@ const cycleInfo = computed(() => {
 
 async function handleLoginSuccess() {
   isAuthenticated.value = true
-  // Mocking the fetch for this example
   const res = await fetch('/api/budget')
-  budgetData.value = await res.json()
+  if (res.ok) {
+    budgetData.value = await res.json()
+  } else {
+    // If the session is ever invalidated, fall back to the PIN screen
+    localStorage.removeItem('budget_auth_token')
+    isAuthenticated.value = false
+  }
 }
+
+onMounted(() => {
+  if (localStorage.getItem('budget_auth_token')) {
+    handleLoginSuccess()
+  }
+})
 
 const currentDisplayBalance = computed(() => {
   if (!budgetData.value) return '0.00'

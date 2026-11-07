@@ -28,6 +28,8 @@ async function verifyPin() {
     body: JSON.stringify({ pin: pin.value })
   })
   if (res.ok) {
+    const data = await res.json()
+    localStorage.setItem('budget_auth_token', data.token || 'authenticated')
     emit('success')
   } else {
     authError.value = 'Incorrect PIN'
@@ -40,12 +42,7 @@ async function verifyPin() {
   <section class="pin-screen">
     <h2>Enter PIN</h2>
     <div class="pin-dots">
-      <div 
-        v-for="n in pinLength" 
-        :key="n" 
-        class="dot" 
-        :class="{ filled: pin.length >= n }"
-      ></div>
+      <div v-for="n in pinLength" :key="n" class="dot" :class="{ filled: pin.length >= n }"></div>
     </div>
     <p v-if="authError" class="error">{{ authError }}</p>
 
@@ -59,14 +56,75 @@ async function verifyPin() {
 </template>
 
 <style scoped>
-.pin-screen { display: flex; flex-direction: column; align-items: center; margin-top: 2rem; }
-.pin-screen h2 { color: var(--text-h); }
-.pin-dots { display: flex; gap: 1rem; margin: 1.5rem 0 2.5rem 0; }
-.dot { width: 16px; height: 16px; border-radius: 50%; background: var(--code-bg); border: 1px solid var(--border); transition: background 0.2s ease, border-color 0.2s ease; }
-.dot.filled { background: var(--accent); border-color: var(--accent); }
-.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; }
-.key { width: 70px; height: 70px; border-radius: 50%; font-size: 1.75rem; background: var(--code-bg); border: 1px solid var(--border); color: var(--text-h); display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; transition: background 0.2s, border-color 0.2s; }
-.key:active { background: var(--accent-bg); border-color: var(--accent-border); }
-.delete-key { background: transparent; border: none; color: var(--text); }
-.error { color: #ef4444; height: 1rem; margin-top: -1.5rem; margin-bottom: 1rem; font-size: 0.9rem; }
+.pin-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 2rem;
+}
+
+.pin-screen h2 {
+  color: var(--text-h);
+}
+
+.pin-dots {
+  display: flex;
+  gap: 1rem;
+  margin: 1.5rem 0 2.5rem 0;
+}
+
+.dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.dot.filled {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+}
+
+.key {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  font-size: 1.75rem;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  color: var(--text-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.key:active {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+
+.delete-key {
+  background: transparent;
+  border: none;
+  color: var(--text);
+}
+
+.error {
+  color: #ef4444;
+  height: 1rem;
+  margin-top: -1.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
 </style>

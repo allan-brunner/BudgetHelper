@@ -1,0 +1,17 @@
+{
+  "name": "BudgetHelper",
+  "short_name": "Budget",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#16171d",
+  "theme_color": "#aa3bff",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
