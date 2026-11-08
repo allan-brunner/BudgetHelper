@@ -15,6 +15,7 @@ const budgetData = ref(null)
 const activeView = ref('shared')
 const timeframe = ref('week') // 'week' or 'month'
 const currentPage = ref('dashboard')
+const historyPocketFilter = ref('all')
 
 const CYCLE_START_DAY = 20
 
@@ -161,6 +162,11 @@ const pinnedPockets = computed(() => {
   return displayPockets.value.filter(p => Boolean(p.pinned))
 })
 
+function openPocketHistory(pocketId) {
+  historyPocketFilter.value = pocketId
+  currentPage.value = 'transactions'
+}
+
 // Function to refetch data when a transaction is added
 async function refreshData() {
   const res = await fetch('/api/budget')
@@ -192,7 +198,7 @@ async function refreshData() {
           </div>
         </div>
 
-        <PocketGrid :pockets="pinnedPockets" />
+        <PocketGrid :pockets="pinnedPockets" @select="openPocketHistory" />
 
         <QuickAdd :accounts="budgetData.accounts" :activeView="activeView" :pockets="budgetData.pockets"
           @added="refreshData" />
@@ -202,7 +208,7 @@ async function refreshData() {
       <section v-else-if="currentPage === 'transactions'" class="page-content">
         <TransactionList :transactions="budgetData.transactions" :accounts="budgetData.accounts"
           :pockets="budgetData.pockets" :activeView="activeView" :cycleStart="cycleInfo.cycleStartStr"
-          @updated="refreshData" />
+          :initialPocket="historyPocketFilter" @updated="refreshData" />
       </section>
 
       <!-- Recurring / Automatic Transactions -->
@@ -230,7 +236,8 @@ async function refreshData() {
         <button :class="{ active: currentPage === 'pockets' }" @click="currentPage = 'pockets'">
           Pockets
         </button>
-        <button :class="{ active: currentPage === 'transactions' }" @click="currentPage = 'transactions'">
+        <button :class="{ active: currentPage === 'transactions' }"
+          @click="historyPocketFilter = 'all'; currentPage = 'transactions'">
           History
         </button>
         <button :class="{ active: currentPage === 'recurring' }" @click="currentPage = 'recurring'">

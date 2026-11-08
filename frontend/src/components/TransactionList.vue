@@ -1,18 +1,28 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   transactions: Array,
   accounts: Array,
   pockets: Array,
   activeView: String,
-  cycleStart: String
+  cycleStart: String,
+  initialPocket: {
+    type: String,
+    default: 'all'
+  }
 })
 
 const emit = defineEmits(['updated'])
 
 const periodFilter = ref('cycle') // 'cycle' or 'all'
-const pocketFilter = ref('all') // 'all', 'unallocated', or pocket.id
+const pocketFilter = ref(props.initialPocket || 'all')
+const searchQuery = ref('')
+
+// Sync dropdown whenever user taps a pocket card from the Dashboard
+watch(() => props.initialPocket, (newVal) => {
+  if (newVal) pocketFilter.value = newVal
+}, { immediate: true })
 
 const getAccountName = (id) => props.accounts.find(a => a.id === id)?.name || id
 const getPocketName = (id) => {
@@ -22,6 +32,8 @@ const getPocketName = (id) => {
 
 const filteredTransactions = computed(() => {
   if (!props.transactions) return []
+  const query = searchQuery.value.trim().toLowerCase()
+
   return props.transactions.filter(tx => {
     const matchAccount = props.activeView === 'shared' ? true : tx.accountId === props.activeView
     const matchPeriod = periodFilter.value === 'all' || !props.cycleStart
@@ -30,9 +42,33 @@ const filteredTransactions = computed(() => {
     const matchPocket = pocketFilter.value === 'all'
       ? true
       : tx.pocketId === pocketFilter.value
+    const matchSearch = !query
+      ? true
+      : tx.label.toLowerCase().includes(query) ||
+      getPocketName(tx.pocketId).toLowerCase().includes(query)
 
-    return matchAccount && matchPeriod && matchPocket
+    return matchAccount && matchPeriod && matchPocket && matchSearch
   })
+})
+
+// Calculate live totals for the filtered list
+const summaryTotals = computed(() => {
+  let spent = 0
+  let added = 0
+
+  for (const tx of filteredTransactions.value) {
+    if (tx.type === 'credit') {
+      added += Number(tx.amount)
+    } else {
+      spent += Number(tx.amount)
+    }
+  }
+
+  return {
+    spent: spent.toFixed(2),
+    added: added.toFixed(2),
+    net: (added - spent).toFixed(2)
+  }
 })
 
 async function deleteTx(id) {
@@ -45,24 +81,42 @@ async function deleteTx(id) {
 
 <template>
   <div class="transaction-list">
-    <!-- Filter Controls -->
-    <div class="filters-bar">
-      <div class="toggle-group">
-        <button type="button" :class="{ active: periodFilter === 'cycle' }" @click="periodFilter = 'cycle'">
-          This Cycle
-        </button>
-        <button type="button" :class="{ active: periodFilter === 'all' }" @click="periodFilter = 'all'">
-          All Time
+    <!-- Filter & Search Controls -->
+    <div class="filters-card">
+      <div class="filters-row">
+        <div class="toggle-group">
+          <button type="button" :class="{ active: periodFilter === 'cycle' }" @click="periodFilter = 'cycle'">
+            This Cycle
+          </button>
+          <button type="button" :class="{ active: periodFilter === 'all' }" @click="periodFilter = 'all'">
+            All Time
+          </button>
+        </div>
+
+        <select v-model="pocketFilter" class="pocket-filter">
+          <option value="all">All Pockets</option>
+          <option value="unallocated">Main Account</option>
+          <option v-for="p in pockets" :key="p.id" :value="p.id">
+            {{ p.name }}
+          </option>
+        </select>
+      </div>
+
+      <!-- Search Input -->
+      <div class="search-row">
+        <input v-model="searchQuery" type="text" placeholder="Search label (e.g. Groceries, Migros)..."
+          class="search-input" />
+        <button v-if="searchQuery" type="button" class="clear-btn" @click="searchQuery = ''">
+          ✕
         </button>
       </div>
 
-      <select v-model="pocketFilter" class="pocket-filter">
-        <option value="all">All Pockets</option>
-        <option value="unallocated">Main Account</option>
-        <option v-for="p in pockets" :key="p.id" :value="p.id">
-          {{ p.name }}
-        </option>
-      </select>
+      <!-- Totals Bar -->
+      <div class="totals-bar">
+        <span>Out: <strong class="spent">-{{ summaryTotals.spent }} CHF</strong></span>
+        <span>In: <strong class="added">+{{ summaryTotals.added }} CHF</strong></span>
+        <span>Net: <strong>{{ summaryTotals.net }} CHF</strong></span>
+      </div>
     </div>
 
     <div v-if="filteredTransactions.length === 0" class="empty-state">
@@ -96,15 +150,21 @@ async function deleteTx(id) {
   padding-bottom: 5rem;
 }
 
-.filters-bar {
+.filters-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--code-bg);
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.filters-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
-  background: var(--code-bg);
-  padding: 0.5rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
 }
 
 .toggle-group {
@@ -141,6 +201,56 @@ async function deleteTx(id) {
   background: var(--bg);
   color: var(--text-h);
   font-size: 0.85rem;
+}
+
+.search-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem 2rem 0.5rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  font-size: 0.85rem;
+}
+
+.clear-btn {
+  position: absolute;
+  right: 0.4rem;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.25rem;
+}
+
+.totals-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text);
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.totals-bar strong {
+  color: var(--text-h);
+}
+
+.totals-bar strong.spent {
+  color: #ef4444;
+}
+
+.totals-bar strong.added {
+  color: #10b981;
 }
 
 .empty-state {

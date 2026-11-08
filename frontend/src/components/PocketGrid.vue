@@ -2,12 +2,13 @@
 defineProps({
   pockets: Array
 })
+defineEmits(['select'])
 </script>
 
 <template>
   <div class="pockets-grid">
     <div v-for="pocket in pockets" :key="pocket.id" class="pocket-card"
-      :class="{ 'card-overspent': pocket.balance < 0 }">
+      :class="{ 'card-overspent': pocket.balance < 0 }" @click="$emit('select', pocket.id)">
       <div class="pocket-header">
         <small>{{ pocket.name }}</small>
         <strong :class="{ 'text-overspent': pocket.balance < 0 }">
@@ -46,6 +47,13 @@ defineProps({
   flex-direction: column;
   gap: 0.5rem;
   background: var(--code-bg);
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.2s ease;
+}
+
+.pocket-card:active {
+  transform: scale(0.98);
+  border-color: var(--accent-border);
 }
 
 .pocket-card.card-overspent {
