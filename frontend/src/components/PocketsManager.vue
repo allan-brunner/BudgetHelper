@@ -76,7 +76,7 @@ async function deletePocket(id) {
                 <div class="pocket-top">
                     <div class="pocket-info">
                         <strong>{{ pocket.name }}</strong>
-                        <span>
+                        <span :class="{ 'text-overspent': pocket.balance < 0 }">
                             {{ pocket.balance.toFixed(2) }}
                             <small>/ {{ pocket.target.toFixed(0) }} CHF</small>
                         </span>
@@ -96,9 +96,14 @@ async function deletePocket(id) {
 
                 <!-- Progress Bar -->
                 <div class="progress-bar-bg">
-                    <div class="progress-bar-fill" :style="{ width: Math.min(pocket.actualPercent, 100) + '%' }"
-                        :class="{ overspent: pocket.actualPercent > 100 }"></div>
-                    <div v-if="pocket.predictedPercent > 0 && pocket.actualPercent < 100" class="progress-bar-predicted"
+                    <div class="progress-bar-fill"
+                        :style="{ width: (pocket.balance < 0 ? 100 : Math.min(pocket.actualPercent, 100)) + '%' }"
+                        :class="{
+                            overspent: pocket.balance < 0,
+                            surplus: pocket.balance >= 0 && pocket.actualPercent > 100
+                        }"></div>
+                    <div v-if="pocket.balance >= 0 && pocket.predictedPercent > 0 && pocket.actualPercent < 100"
+                        class="progress-bar-predicted"
                         :style="{ width: Math.min(pocket.predictedPercent, 100 - pocket.actualPercent) + '%' }"></div>
                 </div>
             </div>
@@ -219,6 +224,10 @@ async function deletePocket(id) {
     font-weight: normal;
 }
 
+.pocket-info span.text-overspent {
+    color: #ef4444;
+}
+
 .pocket-actions {
     display: flex;
     align-items: center;
@@ -279,6 +288,10 @@ async function deletePocket(id) {
 
 .progress-bar-fill.overspent {
     background: #ef4444;
+}
+
+.progress-bar-fill.surplus {
+    background: #10b981;
 }
 
 .progress-bar-predicted {
