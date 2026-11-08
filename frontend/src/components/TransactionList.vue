@@ -71,6 +71,13 @@ const summaryTotals = computed(() => {
   }
 })
 
+async function revealTx(id) {
+  const res = await fetch(`/api/transactions/${id}/reveal`, { method: 'PATCH' })
+  if (res.ok) {
+    emit('updated')
+  }
+}
+
 async function deleteTx(id) {
   const res = await fetch(`/api/transactions/${id}`, { method: 'DELETE' })
   if (res.ok) {
@@ -125,7 +132,10 @@ async function deleteTx(id) {
 
     <div v-for="tx in filteredTransactions" :key="tx.id" class="tx-item">
       <div class="tx-left">
-        <strong>{{ tx.label }}</strong>
+        <div class="tx-title-row">
+          <strong>{{ tx.label }}</strong>
+          <span v-if="tx.isSecret" class="secret-badge">🎁 Secret</span>
+        </div>
         <small>
           {{ getAccountName(tx.accountId) }} • {{ getPocketName(tx.pocketId) }} • {{ tx.date }}
         </small>
@@ -134,6 +144,10 @@ async function deleteTx(id) {
         <div class="tx-right" :class="tx.type">
           {{ tx.type === 'credit' ? '+' : '-' }}{{ tx.amount.toFixed(2) }} CHF
         </div>
+        <button v-if="tx.isSecret" type="button" class="reveal-btn" @click="revealTx(tx.id)"
+          title="Reveal gift to partner">
+          🔓
+        </button>
         <button v-if="tx.id" class="delete-btn" @click="deleteTx(tx.id)" title="Delete transaction">
           ✕
         </button>
@@ -305,6 +319,40 @@ async function deleteTx(id) {
 
 .tx-right.debit {
   color: var(--text-h);
+}
+
+.tx-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.secret-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.reveal-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+}
+
+.reveal-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
 }
 
 .delete-btn {

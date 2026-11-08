@@ -66,16 +66,10 @@ async function initDb(retries = 10) {
       `);
 
             try {
-                await db.execute('ALTER TABLE recurring_transactions ADD COLUMN applyRules INTEGER NOT NULL DEFAULT 0');
+                await db.execute('ALTER TABLE transactions ADD COLUMN isSecret INTEGER NOT NULL DEFAULT 0');
             } catch (e) {
                 // Column already exists, ignore
             }
-            try {
-                await db.execute('ALTER TABLE recurring_transactions ADD COLUMN targetAccountId TEXT');
-            } catch (e) {}
-            try {
-                await db.execute('ALTER TABLE recurring_transactions ADD COLUMN anchorDay INTEGER');
-            } catch (e) {}
 
             const countRes = await db.execute('SELECT COUNT(*) as count FROM accounts');
             if (Number(countRes.rows[0].count) === 0) {
@@ -350,10 +344,13 @@ app.post('/api/transactions', async (req, res) => {
         }
 
         // 3. Standard Debit (-) or Credit (+)
+        const { isSecret = 0 } = req.body;
         const cleanLabel = (label && label.trim()) ? label.trim() : 'Quick Entry';
+        const secretFlag = isSecret ? 1 : 0;
+
         const info = await db.execute({
-            sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-            args: [accountId, pocketId, type, numAmount, cleanLabel, date]
+            sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, isSecret) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            args: [accountId, pocketId, type, numAmount, cleanLabel, date, secretFlag]
         });
 
         res.status(201).json({
@@ -394,6 +391,19 @@ app.delete('/api/transactions/:id', async (req, res) => {
             });
         }
 
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Reveal a secret gift transaction so both partners can see it
+app.patch('/api/transactions/:id/reveal', async (req, res) => {
+    try {
+        await db.execute({
+            sql: 'UPDATE transactions SET isSecret = 0 WHERE id = ?',
+            args: [Number(req.params.id)]
+        });
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });

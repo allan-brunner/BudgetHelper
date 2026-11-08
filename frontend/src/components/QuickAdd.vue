@@ -13,6 +13,7 @@ const type = ref('debit') // 'debit', 'credit', 'transfer', or 'split'
 const amount = ref('')
 const label = ref('')
 const pocketId = ref('unallocated')
+const isSecret = ref(false)
 
 // Source & Destination for Transfers
 const accountId = ref(props.activeView === 'shared' ? props.accounts[0]?.id : props.activeView)
@@ -112,6 +113,7 @@ async function submitTx() {
       customShare1.value = ''
       customShare2.value = ''
       label.value = ''
+      isSecret.value = false
       emit('added')
     }
     return
@@ -141,13 +143,15 @@ async function submitTx() {
       targetPocketId: type.value === 'transfer' ? targetPocketId.value : undefined,
       type: type.value,
       amount: parseFloat(amount.value),
-      label: label.value || defaultLabel
+      label: label.value || defaultLabel,
+      isSecret: type.value === 'debit' ? isSecret.value : false
     })
   })
 
   if (res.ok) {
     amount.value = ''
     label.value = ''
+    isSecret.value = false
     emit('added')
   }
 }
@@ -264,7 +268,14 @@ async function submitTx() {
         @input="onShare2Input" />
     </div>
 
-    <input v-model="label" type="text" placeholder="Label (e.g. Groceries, Rent, Reimbursement)" />
+    <div class="row">
+      <input v-model="label" type="text"
+        :placeholder="isSecret && type === 'debit' ? 'Secret Gift Label...' : 'Label (e.g. Groceries, Rent)'" />
+      <button v-if="type === 'debit'" type="button" class="gift-btn" :class="{ active: isSecret }"
+        @click="isSecret = !isSecret" title="Hide gift expense from partner">
+        🎁
+      </button>
+    </div>
     <button type="submit" class="submit-btn">
       {{ type === 'transfer' ? 'Transfer' : (type === 'split' ? 'Split Bill' : 'Save') }}
     </button>
@@ -384,6 +395,22 @@ async function submitTx() {
 
 .split-preview strong {
   color: var(--text-h);
+}
+
+.gift-btn {
+  flex: 0 0 auto;
+  padding: 0.55rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.gift-btn.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
 }
 
 .submit-btn {

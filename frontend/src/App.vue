@@ -16,6 +16,8 @@ const activeView = ref('shared')
 const timeframe = ref('week') // 'week' or 'month'
 const currentPage = ref('dashboard')
 const historyPocketFilter = ref('all')
+const myAccountId = ref(localStorage.getItem('budget_my_account') || '')
+const hideMySecrets = ref(false) // Quick toggle when showing your screen to your partner
 
 const CYCLE_START_DAY = 20
 
@@ -88,9 +90,42 @@ onUnmounted(() => {
   window.removeEventListener('focus', handleVisibilityRefresh)
 })
 
+function setMyAccount(id) {
+  myAccountId.value = id
+  localStorage.setItem('budget_my_account', id)
+}
+
+// Auto-initialize myAccountId to the first account if not set yet
+const activeOwnerId = computed(() => {
+  if (myAccountId.value) return myAccountId.value
+  return budgetData.value?.accounts?.[0]?.id || ''
+})
+
+// Hide secret transactions belonging to the partner (or all secrets if Spoil-Guard is active)
+const visibleTransactions = computed(() => {
+  if (!budgetData.value?.transactions) return []
+  return budgetData.value.transactions.filter(tx => {
+    if (!tx.isSecret) return true
+    if (hideMySecrets.value) return false
+    return tx.accountId === activeOwnerId.value
+  })
+})
+
+// Recompute pocketBalances from visibleTransactions so hidden gifts never drop the partner's visible balance
+const visiblePocketBalances = computed(() => {
+  const map = new Map()
+  for (const tx of visibleTransactions.value) {
+    const key = `${tx.accountId}::${tx.pocketId}`
+    const prev = map.get(key) || { accountId: tx.accountId, pocketId: tx.pocketId, balance: 0 }
+    prev.balance += tx.type === 'credit' ? Number(tx.amount) : -Number(tx.amount)
+    map.set(key, prev)
+  }
+  return Array.from(map.values())
+})
+
 const currentDisplayBalance = computed(() => {
   if (!budgetData.value) return '0.00'
-  const relevantBalances = budgetData.value.pocketBalances.filter(b =>
+  const relevantBalances = visiblePocketBalances.value.filter(b =>
     activeView.value === 'shared' ? true : b.accountId === activeView.value
   )
   return relevantBalances.reduce((sum, b) => sum + b.balance, 0).toFixed(2)
@@ -98,7 +133,7 @@ const currentDisplayBalance = computed(() => {
 
 const unallocatedBalance = computed(() => {
   if (!budgetData.value) return '0.00'
-  const relevantBalances = budgetData.value.pocketBalances.filter(b =>
+  const relevantBalances = visiblePocketBalances.value.filter(b =>
     (!b.pocketId || b.pocketId === 'unallocated') &&
     (activeView.value === 'shared' ? true : b.accountId === activeView.value)
   )
@@ -114,14 +149,14 @@ const displayPockets = computed(() => {
   if (!budgetData.value) return []
 
   return budgetData.value.pockets.map(pocket => {
-    // Current Balance
-    const balances = budgetData.value.pocketBalances.filter(b =>
+    // Current Balance (uses visiblePocketBalances so secret gifts stay hidden)
+    const balances = visiblePocketBalances.value.filter(b =>
       b.pocketId === pocket.id &&
       (activeView.value === 'shared' || b.accountId === activeView.value)
     )
     const currentBalance = balances.reduce((sum, b) => sum + b.balance, 0)
 
-    // Expected Rules
+    // Expected Rules (must read from budgetData.value.budgetRules)
     const rules = budgetData.value.budgetRules.filter(r =>
       r.pocketId === pocket.id &&
       (activeView.value === 'shared' || r.accountId === activeView.value)
@@ -136,17 +171,17 @@ const displayPockets = computed(() => {
       }
     }, 0)
 
-    // FIXED: Only weekly frequencies project upcoming expected money
+    // Only weekly frequencies project upcoming expected money
     const upcomingPrediction = rules.reduce((sum, rule) => {
       if (rule.frequency === 'monthly') {
-        return sum // Monthly budgets arrive all at once; 0 upcoming
+        return sum
       }
       return sum + (rule.amount * cycleInfo.value.weeksRemaining)
     }, 0)
 
     // Calculate percentages for the split progress bar
-    const actualPercent = target > 0 ? (currentBalance / target) * 100 : 0
-    const predictedPercent = target > 0 ? (upcomingPrediction / target) * 100 : 0
+    const actualPercent = target > 0 ? Math.max(0, (currentBalance / target) * 100) : (currentBalance > 0 ? 100 : 0)
+    const predictedPercent = target > 0 ? Math.max(0, (upcomingPrediction / target) * 100) : 0
 
     return {
       ...pocket,
@@ -180,6 +215,22 @@ async function refreshData() {
 
     <div v-else-if="budgetData" class="app-layout">
 
+      <!-- Phone Owner & Gift Spoil-Guard Bar -->
+      <div class="privacy-bar">
+        <div class="owner-select">
+          <small>My phone:</small>
+          <button v-for="acc in budgetData.accounts" :key="acc.id" type="button"
+            :class="{ active: activeOwnerId === acc.id }" @click="setMyAccount(acc.id)">
+            {{ acc.name }}
+          </button>
+        </div>
+
+        <button type="button" class="spoil-guard-btn" :class="{ active: hideMySecrets }"
+          @click="hideMySecrets = !hideMySecrets" title="Temporarily hide my secret gifts on this screen">
+          🎁 {{ hideMySecrets ? 'Hidden' : 'Visible' }}
+        </button>
+      </div>
+
       <!-- Global Header -->
       <AccountTabs :accounts="budgetData.accounts" :activeView="activeView"
         @update:activeView="(val) => activeView = val" />
@@ -206,7 +257,7 @@ async function refreshData() {
 
       <!-- Transactions -->
       <section v-else-if="currentPage === 'transactions'" class="page-content">
-        <TransactionList :transactions="budgetData.transactions" :accounts="budgetData.accounts"
+        <TransactionList :transactions="visibleTransactions" :accounts="budgetData.accounts"
           :pockets="budgetData.pockets" :activeView="activeView" :cycleStart="cycleInfo.cycleStartStr"
           :initialPocket="historyPocketFilter" @updated="refreshData" />
       </section>
@@ -320,6 +371,50 @@ async function refreshData() {
   flex-direction: column;
   gap: 1.25rem;
   padding-bottom: 4rem;
+}
+
+.privacy-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.owner-select {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.owner-select small {
+  color: var(--text);
+  margin-right: 0.15rem;
+}
+
+.owner-select button,
+.spoil-guard-btn {
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.owner-select button.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.spoil-guard-btn.active {
+  background: #ef4444;
+  color: #fff;
+  border-color: #ef4444;
 }
 
 /* Bottom Navigation */
