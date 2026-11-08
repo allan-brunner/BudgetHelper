@@ -15,6 +15,7 @@ const todayStr = new Date().toISOString().split('T')[0]
 const type = ref('debit') // 'debit', 'credit', or 'transfer'
 const accountId = ref(props.activeView === 'shared' ? props.accounts[0]?.id : props.activeView)
 const pocketId = ref('unallocated')
+const targetAccountId = ref(props.accounts[1]?.id || props.accounts[0]?.id)
 const targetPocketId = ref(props.pockets[0]?.id || 'unallocated')
 const frequency = ref('monthly')
 const nextDate = ref(todayStr)
@@ -26,11 +27,18 @@ watch(() => props.activeView, (newVal) => {
     if (newVal !== 'shared') accountId.value = newVal
 })
 
-watch([type, pocketId], () => {
-    if (type.value === 'transfer' && pocketId.value === targetPocketId.value) {
-        targetPocketId.value = pocketId.value === 'unallocated'
-            ? (props.pockets[0]?.id || '')
-            : 'unallocated'
+// Keep transfer destination distinct from source
+watch([type, accountId, pocketId], () => {
+    if (
+        type.value === 'transfer' &&
+        accountId.value === targetAccountId.value &&
+        pocketId.value === targetPocketId.value
+    ) {
+        if (pocketId.value === 'unallocated' && props.pockets?.length) {
+            targetPocketId.value = props.pockets[0].id
+        } else {
+            targetPocketId.value = 'unallocated'
+        }
     }
 })
 
@@ -59,18 +67,27 @@ const getDaysRemaining = (dateStr) => {
     return `in ${diffDays}d`
 }
 
-// Filtered by active account tab and sorted by nearest nextDate
+// Show items where active account is either sender or recipient, sorted by nearest date
 const filteredRecurring = computed(() => {
     if (!props.recurring) return []
     return props.recurring
-        .filter(item => props.activeView === 'shared' ? true : item.accountId === props.activeView)
+        .filter(item => {
+            if (props.activeView === 'shared') return true
+            return item.accountId === props.activeView || item.targetAccountId === props.activeView
+        })
         .slice()
         .sort((a, b) => a.nextDate.localeCompare(b.nextDate))
 })
 
 async function addRecurring() {
     if (!amount.value || !pocketId.value || !accountId.value || !nextDate.value) return
-    if (type.value === 'transfer' && (!targetPocketId.value || pocketId.value === targetPocketId.value)) return
+    if (
+        type.value === 'transfer' &&
+        accountId.value === targetAccountId.value &&
+        pocketId.value === targetPocketId.value
+    ) {
+        return
+    }
 
     const defaultLabel = type.value === 'credit'
         ? 'Salary / Income'
@@ -82,6 +99,7 @@ async function addRecurring() {
         body: JSON.stringify({
             accountId: accountId.value,
             pocketId: pocketId.value,
+            targetAccountId: type.value === 'transfer' ? targetAccountId.value : null,
             targetPocketId: type.value === 'transfer' ? targetPocketId.value : null,
             type: type.value,
             amount: parseFloat(amount.value),
@@ -95,6 +113,7 @@ async function addRecurring() {
     if (res.ok) {
         amount.value = ''
         label.value = ''
+        applyRules.value = false
         emit('updated')
     }
 }
@@ -135,7 +154,7 @@ async function deleteRecurring(id) {
                 </button>
             </div>
 
-            <!-- Pocket Selector -->
+            <!-- Standard + or - Pocket Selector -->
             <div v-if="type !== 'transfer'" class="row">
                 <select v-if="activeView === 'shared'" v-model="accountId">
                     <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
@@ -150,26 +169,37 @@ async function deleteRecurring(id) {
                 </select>
             </div>
 
-            <!-- Transfer From -> To -->
+            <!-- Transfer Mode: From (Account + Pocket) -> To (Account + Pocket) -->
             <template v-else>
-                <div v-if="activeView === 'shared'" class="row">
+                <div class="row">
+                    <span class="row-tag">From</span>
                     <select v-model="accountId">
                         <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
                             {{ acc.name }}
                         </option>
                     </select>
-                </div>
-                <div class="row">
                     <select v-model="pocketId">
                         <option value="unallocated">Main Account</option>
                         <option v-for="p in pockets" :key="p.id" :value="p.id">
                             {{ p.name }}
                         </option>
                     </select>
-                    <span class="arrow">→</span>
+                </div>
+
+                <div class="row">
+                    <span class="row-tag">To</span>
+                    <select v-model="targetAccountId">
+                        <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
+                            {{ acc.name }}
+                        </option>
+                    </select>
                     <select v-model="targetPocketId">
-                        <option value="unallocated" :disabled="pocketId === 'unallocated'">Main Account</option>
-                        <option v-for="p in pockets" :key="p.id" :value="p.id" :disabled="pocketId === p.id">
+                        <option value="unallocated"
+                            :disabled="accountId === targetAccountId && pocketId === 'unallocated'">
+                            Main Account
+                        </option>
+                        <option v-for="p in pockets" :key="p.id" :value="p.id"
+                            :disabled="accountId === targetAccountId && pocketId === p.id">
                             {{ p.name }}
                         </option>
                     </select>
@@ -190,7 +220,7 @@ async function deleteRecurring(id) {
             <!-- Amount & Label -->
             <div class="row">
                 <input v-model="amount" type="number" step="0.01" placeholder="Amount (CHF)" required />
-                <input v-model="label" type="text" placeholder="Label (e.g. Salary, Netflix)" />
+                <input v-model="label" type="text" placeholder="Label (e.g. Salary, Rent)" />
             </div>
 
             <label v-if="type === 'credit' && pocketId === 'unallocated'" class="rule-checkbox">
@@ -215,12 +245,13 @@ async function deleteRecurring(id) {
                         <span v-if="item.applyRules" class="date-badge">+ Rules</span>
                     </div>
                     <small>
-                        {{ getAccountName(item.accountId) }} •
                         <template v-if="item.type === 'transfer'">
-                            {{ getPocketName(item.pocketId) }} → {{ getPocketName(item.targetPocketId) }}
+                            {{ getAccountName(item.accountId) }} ({{ getPocketName(item.pocketId) }}) →
+                            {{ getAccountName(item.targetAccountId || item.accountId) }} ({{
+                                getPocketName(item.targetPocketId) }})
                         </template>
                         <template v-else>
-                            {{ getPocketName(item.pocketId) }}
+                            {{ getAccountName(item.accountId) }} • {{ getPocketName(item.pocketId) }}
                         </template>
                         • {{ formatFrequency(item.frequency) }}
                     </small>
@@ -277,6 +308,7 @@ async function deleteRecurring(id) {
 
 .type-btn {
     flex: 1;
+    min-width: 0;
     padding: 0.5rem;
     font-size: 1.35rem;
     font-weight: bold;
@@ -313,9 +345,12 @@ async function deleteRecurring(id) {
     align-items: center;
 }
 
-.arrow {
+.row-tag {
+    font-size: 0.8rem;
+    font-weight: 600;
     color: var(--text);
-    font-weight: bold;
+    width: 2.5rem;
+    text-align: left;
     flex-shrink: 0;
 }
 
@@ -328,6 +363,17 @@ async function deleteRecurring(id) {
     border: 1px solid var(--border);
     background: var(--bg);
     color: var(--text-h);
+}
+
+.rule-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-h);
+    cursor: pointer;
+    user-select: none;
+    padding: 0.15rem 0;
 }
 
 .submit-btn {
@@ -400,7 +446,7 @@ async function deleteRecurring(id) {
 .recurring-actions {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.5rem;
     flex-shrink: 0;
 }
 
@@ -438,17 +484,6 @@ async function deleteRecurring(id) {
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
-}
-
-.rule-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-    color: var(--text-h);
-    cursor: pointer;
-    user-select: none;
-    padding: 0.15rem 0;
 }
 
 .delete-btn {

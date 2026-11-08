@@ -53,12 +53,15 @@ async function initDb(retries = 10) {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           accountId TEXT NOT NULL,
           pocketId TEXT NOT NULL,
+          targetAccountId TEXT,
           targetPocketId TEXT,
           type TEXT NOT NULL,
           amount REAL NOT NULL,
           label TEXT NOT NULL,
           frequency TEXT NOT NULL,
-          nextDate TEXT NOT NULL
+          nextDate TEXT NOT NULL,
+          anchorDay INTEGER,
+          applyRules INTEGER NOT NULL DEFAULT 0
         );
       `);
 
@@ -67,6 +70,12 @@ async function initDb(retries = 10) {
             } catch (e) {
                 // Column already exists, ignore
             }
+            try {
+                await db.execute('ALTER TABLE recurring_transactions ADD COLUMN targetAccountId TEXT');
+            } catch (e) {}
+            try {
+                await db.execute('ALTER TABLE recurring_transactions ADD COLUMN anchorDay INTEGER');
+            } catch (e) {}
 
             const countRes = await db.execute('SELECT COUNT(*) as count FROM accounts');
             if (Number(countRes.rows[0].count) === 0) {
@@ -123,20 +132,29 @@ app.use('/api', (req, res, next) => {
     next();
 });
 
-function getNextDate(dateStr, frequency) {
+function getNextDate(dateStr, frequency, anchorDay = null) {
     const [year, month, day] = dateStr.split('-').map(Number);
-    const d = new Date(Date.UTC(year, month - 1, day));
 
     if (frequency === 'weekly') {
-        d.setUTCDate(d.getUTCDate() + 7);
-    } else if (frequency === 'monthly') {
-        d.setUTCMonth(d.getUTCMonth() + 1);
-    } else if (frequency === 'semester') {
-        d.setUTCMonth(d.getUTCMonth() + 6);
-    } else if (frequency === 'yearly') {
-        d.setUTCFullYear(d.getUTCFullYear() + 1);
+        const d = new Date(Date.UTC(year, month - 1, day + 7));
+        return d.toISOString().split('T')[0];
     }
-    return d.toISOString().split('T')[0];
+
+    const desiredDay = Number(anchorDay) || day;
+    let monthsToAdd = 1;
+    if (frequency === 'semester') monthsToAdd = 6;
+    if (frequency === 'yearly') monthsToAdd = 12;
+
+    const totalMonths = (year * 12 + (month - 1)) + monthsToAdd;
+    const targetYear = Math.floor(totalMonths / 12);
+    const targetMonthIndex = totalMonths % 12; // 0-indexed (0 = Jan, 1 = Feb)
+
+    // Day 0 of the following month gives the exact last day of targetMonthIndex (28, 29, 30, or 31)
+    const maxDaysInMonth = new Date(Date.UTC(targetYear, targetMonthIndex + 1, 0)).getUTCDate();
+    const clampedDay = Math.min(desiredDay, maxDaysInMonth);
+
+    const nextD = new Date(Date.UTC(targetYear, targetMonthIndex, clampedDay));
+    return nextD.toISOString().split('T')[0];
 }
 
 // Generates transfer queries from 'unallocated' to pockets based on budget_rules
@@ -186,10 +204,11 @@ async function processRecurringTransactions() {
     const queries = [];
     for (const item of dueRes.rows) {
         let triggerDate = item.nextDate;
+        const anchor = item.anchorDay || Number(item.nextDate.split('-')[2]);
 
-        // Catch up on all occurrences up to today
         while (triggerDate <= today) {
             if (item.type === 'transfer' && item.targetPocketId) {
+                const destAccountId = item.targetAccountId || item.accountId;
                 const groupId = crypto.randomUUID();
                 queries.push({
                     sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -197,7 +216,7 @@ async function processRecurringTransactions() {
                 });
                 queries.push({
                     sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    args: [item.accountId, item.targetPocketId, 'credit', Number(item.amount), `${item.label} (Auto ←)`, triggerDate, groupId]
+                    args: [destAccountId, item.targetPocketId, 'credit', Number(item.amount), `${item.label} (Auto ←)`, triggerDate, groupId]
                 });
             } else {
                 queries.push({
@@ -206,7 +225,6 @@ async function processRecurringTransactions() {
                 });
             }
 
-            // Automatically apply monthly budget rules when a salary with applyRules=1 triggers
             if (Number(item.applyRules) === 1) {
                 const ruleQueries = await buildRuleAllocationQueries(
                     item.accountId,
@@ -217,12 +235,12 @@ async function processRecurringTransactions() {
                 queries.push(...ruleQueries);
             }
 
-            triggerDate = getNextDate(triggerDate, item.frequency);
+            triggerDate = getNextDate(triggerDate, item.frequency, anchor);
         }
 
         queries.push({
-            sql: 'UPDATE recurring_transactions SET nextDate = ? WHERE id = ?',
-            args: [triggerDate, item.id]
+            sql: 'UPDATE recurring_transactions SET nextDate = ?, anchorDay = ? WHERE id = ?',
+            args: [triggerDate, anchor, item.id]
         });
     }
 
@@ -388,6 +406,7 @@ app.post('/api/recurring', async (req, res) => {
         const {
             accountId,
             pocketId,
+            targetAccountId = null,
             targetPocketId = null,
             type = 'debit',
             amount,
@@ -401,18 +420,20 @@ app.post('/api/recurring', async (req, res) => {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        if (type === 'transfer' && (!targetPocketId || pocketId === targetPocketId)) {
-            return res.status(400).json({ error: 'Select two different buckets for transfer' });
+        const destAccountId = type === 'transfer' ? (targetAccountId || accountId) : null;
+        if (type === 'transfer' && (!targetPocketId || (accountId === destAccountId && pocketId === targetPocketId))) {
+            return res.status(400).json({ error: 'Select a different destination account or pocket' });
         }
 
         const cleanLabel = (label && label.trim()) ? label.trim() : 'Scheduled Entry';
         const numAmount = Number(amount);
+        const anchorDay = Number(nextDate.split('-')[2]);
 
         const info = await db.execute({
             sql: `INSERT INTO recurring_transactions 
-                  (accountId, pocketId, targetPocketId, type, amount, label, frequency, nextDate, applyRules) 
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            args: [accountId, pocketId, targetPocketId, type, numAmount, cleanLabel, frequency, nextDate, applyRules ? 1 : 0]
+                  (accountId, pocketId, targetAccountId, targetPocketId, type, amount, label, frequency, nextDate, anchorDay, applyRules) 
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [accountId, pocketId, destAccountId, targetPocketId, type, numAmount, cleanLabel, frequency, nextDate, anchorDay, applyRules ? 1 : 0]
         });
 
         res.status(201).json({
@@ -439,20 +460,20 @@ app.post('/api/recurring/:id/trigger', async (req, res) => {
 
         const item = result.rows[0];
         const today = new Date().toISOString().split('T')[0];
-        
-        // Advance from item.nextDate (not today) so the anchor day (e.g. the 20th) never drifts
-        const newNextDate = getNextDate(item.nextDate, item.frequency);
+        const anchor = item.anchorDay || Number(item.nextDate.split('-')[2]);
+        const newNextDate = getNextDate(item.nextDate, item.frequency, anchor);
         const queries = [];
 
         if (item.type === 'transfer' && item.targetPocketId) {
+            const destAccountId = item.targetAccountId || item.accountId;
             const groupId = crypto.randomUUID();
             queries.push({
                 sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                args: [item.accountId, item.pocketId, 'debit', Number(item.amount), `${item.label} (Auto →)`, today, groupId]
+                args: [item.accountId, item.pocketId, 'debit', Number(item.amount), `${item.label} (→)`, today, groupId]
             });
             queries.push({
                 sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                args: [item.accountId, item.targetPocketId, 'credit', Number(item.amount), `${item.label} (Auto ←)`, today, groupId]
+                args: [destAccountId, item.targetPocketId, 'credit', Number(item.amount), `${item.label} (←)`, today, groupId]
             });
         } else {
             queries.push({
@@ -471,10 +492,9 @@ app.post('/api/recurring/:id/trigger', async (req, res) => {
             queries.push(...ruleQueries);
         }
 
-        // Skip the upcoming occurrence by advancing nextDate to the following cycle
         queries.push({
-            sql: 'UPDATE recurring_transactions SET nextDate = ? WHERE id = ?',
-            args: [newNextDate, id]
+            sql: 'UPDATE recurring_transactions SET nextDate = ?, anchorDay = ? WHERE id = ?',
+            args: [newNextDate, anchor, id]
         });
 
         await db.batch(queries, 'write');
