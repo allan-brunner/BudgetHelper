@@ -46,7 +46,8 @@ async function initDb(retries = 10) {
           type TEXT NOT NULL,
           amount REAL NOT NULL,
           label TEXT NOT NULL,
-          date TEXT NOT NULL
+          date TEXT NOT NULL,
+          groupId TEXT
         );
         CREATE TABLE IF NOT EXISTS recurring_transactions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,9 +62,8 @@ async function initDb(retries = 10) {
         );
       `);
 
-            // Safely add 'pinned' column if upgrading an existing database
             try {
-                await db.execute('ALTER TABLE pockets ADD COLUMN pinned INTEGER NOT NULL DEFAULT 1');
+                await db.execute('ALTER TABLE transactions ADD COLUMN groupId TEXT');
             } catch (e) {
                 // Column already exists, ignore
             }
@@ -182,6 +182,7 @@ async function processRecurringTransactions() {
         await db.batch(queries, 'write');
     }
 }
+
 app.get('/api/budget', async (req, res) => {
     try {
         await processRecurringTransactions();
@@ -230,18 +231,19 @@ app.post('/api/transactions', async (req, res) => {
 
         const date = new Date().toISOString().split('T')[0];
 
-        // Handle 50/50 or Custom Bill Splits
+        // 1. Handle 50/50 or Custom Bill Splits (linked by groupId)
         if (type === 'split') {
             if (!pocketId || !Array.isArray(splits) || splits.length === 0) {
                 return res.status(400).json({ error: 'Missing split details' });
             }
 
             const cleanLabel = (label && label.trim()) ? label.trim() : 'Shared Bill';
+            const groupId = crypto.randomUUID();
             const queries = splits
                 .filter(s => s.accountId && Number(s.amount) > 0)
                 .map(s => ({
-                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-                    args: [s.accountId, pocketId, 'debit', Number(s.amount), `${cleanLabel} (Split)`, date]
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    args: [s.accountId, pocketId, 'debit', Number(s.amount), `${cleanLabel} (Split)`, date, groupId]
                 }));
 
             if (queries.length === 0) {
@@ -258,7 +260,7 @@ app.post('/api/transactions', async (req, res) => {
 
         const numAmount = Number(amount);
 
-        // Handle Transfers (Same Account or Partner-to-Partner)
+        // 2. Handle Transfers (linked by groupId)
         if (type === 'transfer') {
             const destAccountId = targetAccountId || accountId;
             if (!targetPocketId || (accountId === destAccountId && pocketId === targetPocketId)) {
@@ -266,21 +268,22 @@ app.post('/api/transactions', async (req, res) => {
             }
 
             const cleanLabel = (label && label.trim()) ? label.trim() : 'Transfer';
+            const groupId = crypto.randomUUID();
             await db.batch([
                 {
-                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-                    args: [accountId, pocketId, 'debit', numAmount, `${cleanLabel} (→)`, date]
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    args: [accountId, pocketId, 'debit', numAmount, `${cleanLabel} (→)`, date, groupId]
                 },
                 {
-                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-                    args: [destAccountId, targetPocketId, 'credit', numAmount, `${cleanLabel} (←)`, date]
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    args: [destAccountId, targetPocketId, 'credit', numAmount, `${cleanLabel} (←)`, date, groupId]
                 }
             ], 'write');
 
             return res.status(201).json({ success: true });
         }
 
-        // Standard Debit (-) or Credit (+)
+        // 3. Standard Debit (-) or Credit (+)
         const cleanLabel = (label && label.trim()) ? label.trim() : 'Quick Entry';
         const info = await db.execute({
             sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
@@ -304,13 +307,27 @@ app.post('/api/transactions', async (req, res) => {
     }
 });
 
-// Delete a transaction
+// Delete a transaction (and its paired transfer/split leg if it shares a groupId)
 app.delete('/api/transactions/:id', async (req, res) => {
     try {
-        await db.execute({
-            sql: 'DELETE FROM transactions WHERE id = ?',
-            args: [Number(req.params.id)]
+        const id = Number(req.params.id);
+        const txRes = await db.execute({
+            sql: 'SELECT groupId FROM transactions WHERE id = ?',
+            args: [id]
         });
+
+        if (txRes.rows.length > 0 && txRes.rows[0].groupId) {
+            await db.execute({
+                sql: 'DELETE FROM transactions WHERE groupId = ?',
+                args: [txRes.rows[0].groupId]
+            });
+        } else {
+            await db.execute({
+                sql: 'DELETE FROM transactions WHERE id = ?',
+                args: [id]
+            });
+        }
+
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -379,13 +396,14 @@ app.post('/api/recurring/:id/trigger', async (req, res) => {
         const queries = [];
 
         if (item.type === 'transfer' && item.targetPocketId) {
+            const groupId = crypto.randomUUID();
             queries.push({
-                sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-                args: [item.accountId, item.pocketId, 'debit', Number(item.amount), `${item.label} (→)`, today]
+                sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                args: [item.accountId, item.pocketId, 'debit', Number(item.amount), `${item.label} (Auto →)`, today, groupId]
             });
             queries.push({
-                sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-                args: [item.accountId, item.targetPocketId, 'credit', Number(item.amount), `${item.label} (←)`, today]
+                sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                args: [item.accountId, item.targetPocketId, 'credit', Number(item.amount), `${item.label} (Auto ←)`, today, groupId]
             });
         } else {
             queries.push({
@@ -508,13 +526,27 @@ app.patch('/api/pockets/:id', async (req, res) => {
     }
 });
 
-// Delete a pocket
+// Delete a pocket and return its transactions/balance to Main Account ('unallocated')
 app.delete('/api/pockets/:id', async (req, res) => {
     try {
         const pocketId = req.params.id;
         await db.batch([
-            { sql: 'DELETE FROM pockets WHERE id = ?', args: [pocketId] },
-            { sql: 'DELETE FROM budget_rules WHERE pocketId = ?', args: [pocketId] }
+            {
+                sql: "UPDATE transactions SET pocketId = 'unallocated' WHERE pocketId = ?",
+                args: [pocketId]
+            },
+            {
+                sql: 'DELETE FROM budget_rules WHERE pocketId = ?',
+                args: [pocketId]
+            },
+            {
+                sql: 'DELETE FROM recurring_transactions WHERE pocketId = ? OR targetPocketId = ?',
+                args: [pocketId, pocketId]
+            },
+            {
+                sql: 'DELETE FROM pockets WHERE id = ?',
+                args: [pocketId]
+            }
         ], 'write');
         res.json({ success: true });
     } catch (err) {
