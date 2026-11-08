@@ -20,6 +20,7 @@ const frequency = ref('monthly')
 const nextDate = ref(todayStr)
 const amount = ref('')
 const label = ref('')
+const applyRules = ref(false)
 
 watch(() => props.activeView, (newVal) => {
     if (newVal !== 'shared') accountId.value = newVal
@@ -86,7 +87,8 @@ async function addRecurring() {
             amount: parseFloat(amount.value),
             label: label.value || defaultLabel,
             frequency: frequency.value,
-            nextDate: nextDate.value
+            nextDate: nextDate.value,
+            applyRules: (type.value === 'credit' && pocketId.value === 'unallocated') ? applyRules.value : false
         })
     })
 
@@ -191,6 +193,11 @@ async function deleteRecurring(id) {
                 <input v-model="label" type="text" placeholder="Label (e.g. Salary, Netflix)" />
             </div>
 
+            <label v-if="type === 'credit' && pocketId === 'unallocated'" class="rule-checkbox">
+                <input v-model="applyRules" type="checkbox" />
+                <span>Auto-apply monthly pocket rules when received</span>
+            </label>
+
             <button type="submit" class="submit-btn">Schedule Transaction</button>
         </form>
 
@@ -205,6 +212,7 @@ async function deleteRecurring(id) {
                     <div class="title-row">
                         <strong>{{ item.label }}</strong>
                         <span class="date-badge">{{ item.nextDate }} ({{ getDaysRemaining(item.nextDate) }})</span>
+                        <span v-if="item.applyRules" class="date-badge">+ Rules</span>
                     </div>
                     <small>
                         {{ getAccountName(item.accountId) }} •
@@ -430,6 +438,17 @@ async function deleteRecurring(id) {
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
+}
+
+.rule-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-h);
+    cursor: pointer;
+    user-select: none;
+    padding: 0.15rem 0;
 }
 
 .delete-btn {

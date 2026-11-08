@@ -63,7 +63,7 @@ async function initDb(retries = 10) {
       `);
 
             try {
-                await db.execute('ALTER TABLE transactions ADD COLUMN groupId TEXT');
+                await db.execute('ALTER TABLE recurring_transactions ADD COLUMN applyRules INTEGER NOT NULL DEFAULT 0');
             } catch (e) {
                 // Column already exists, ignore
             }
@@ -139,6 +139,41 @@ function getNextDate(dateStr, frequency) {
     return d.toISOString().split('T')[0];
 }
 
+// Generates transfer queries from 'unallocated' to pockets based on budget_rules
+async function buildRuleAllocationQueries(accountId, frequencyFilter, dateStr, labelPrefix = 'Rule Allocation') {
+    let sql = 'SELECT * FROM budget_rules WHERE 1=1';
+    const args = [];
+
+    if (accountId && accountId !== 'shared') {
+        sql += ' AND accountId = ?';
+        args.push(accountId);
+    }
+    if (frequencyFilter && frequencyFilter !== 'all') {
+        sql += ' AND frequency = ?';
+        args.push(frequencyFilter);
+    }
+
+    const rulesRes = await db.execute({ sql, args });
+    const queries = [];
+
+    for (const rule of rulesRes.rows) {
+        const groupId = crypto.randomUUID();
+        const amt = Number(rule.amount);
+        if (amt <= 0) continue;
+
+        queries.push({
+            sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            args: [rule.accountId, 'unallocated', 'debit', amt, `${labelPrefix} (→)`, dateStr, groupId]
+        });
+        queries.push({
+            sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            args: [rule.accountId, rule.pocketId, 'credit', amt, `${labelPrefix} (←)`, dateStr, groupId]
+        });
+    }
+
+    return queries;
+}
+
 async function processRecurringTransactions() {
     const today = new Date().toISOString().split('T')[0];
     const dueRes = await db.execute({
@@ -155,13 +190,14 @@ async function processRecurringTransactions() {
         // Catch up on all occurrences up to today
         while (triggerDate <= today) {
             if (item.type === 'transfer' && item.targetPocketId) {
+                const groupId = crypto.randomUUID();
                 queries.push({
-                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-                    args: [item.accountId, item.pocketId, 'debit', Number(item.amount), `${item.label} (Auto →)`, triggerDate]
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    args: [item.accountId, item.pocketId, 'debit', Number(item.amount), `${item.label} (Auto →)`, triggerDate, groupId]
                 });
                 queries.push({
-                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
-                    args: [item.accountId, item.targetPocketId, 'credit', Number(item.amount), `${item.label} (Auto ←)`, triggerDate]
+                    sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date, groupId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    args: [item.accountId, item.targetPocketId, 'credit', Number(item.amount), `${item.label} (Auto ←)`, triggerDate, groupId]
                 });
             } else {
                 queries.push({
@@ -169,6 +205,18 @@ async function processRecurringTransactions() {
                     args: [item.accountId, item.pocketId, item.type, Number(item.amount), `${item.label} (Auto)`, triggerDate]
                 });
             }
+
+            // Automatically apply monthly budget rules when a salary with applyRules=1 triggers
+            if (Number(item.applyRules) === 1) {
+                const ruleQueries = await buildRuleAllocationQueries(
+                    item.accountId,
+                    'monthly',
+                    triggerDate,
+                    `${item.label} Rules`
+                );
+                queries.push(...ruleQueries);
+            }
+
             triggerDate = getNextDate(triggerDate, item.frequency);
         }
 
@@ -345,7 +393,8 @@ app.post('/api/recurring', async (req, res) => {
             amount,
             label,
             frequency = 'monthly',
-            nextDate
+            nextDate,
+            applyRules = 0
         } = req.body;
 
         if (!accountId || !pocketId || amount === undefined || !nextDate || !frequency) {
@@ -361,9 +410,9 @@ app.post('/api/recurring', async (req, res) => {
 
         const info = await db.execute({
             sql: `INSERT INTO recurring_transactions 
-                  (accountId, pocketId, targetPocketId, type, amount, label, frequency, nextDate) 
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            args: [accountId, pocketId, targetPocketId, type, numAmount, cleanLabel, frequency, nextDate]
+                  (accountId, pocketId, targetPocketId, type, amount, label, frequency, nextDate, applyRules) 
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [accountId, pocketId, targetPocketId, type, numAmount, cleanLabel, frequency, nextDate, applyRules ? 1 : 0]
         });
 
         res.status(201).json({
@@ -410,6 +459,16 @@ app.post('/api/recurring/:id/trigger', async (req, res) => {
                 sql: 'INSERT INTO transactions (accountId, pocketId, type, amount, label, date) VALUES (?, ?, ?, ?, ?, ?)',
                 args: [item.accountId, item.pocketId, item.type, Number(item.amount), item.label, today]
             });
+        }
+
+        if (Number(item.applyRules) === 1) {
+            const ruleQueries = await buildRuleAllocationQueries(
+                item.accountId,
+                'monthly',
+                today,
+                `${item.label} Rules`
+            );
+            queries.push(...ruleQueries);
         }
 
         // Skip the upcoming occurrence by advancing nextDate to the following cycle
@@ -467,6 +526,24 @@ app.post('/api/rules', async (req, res) => {
                 frequency
             }
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Manually apply budget rules (moves money from Main Account -> Pockets)
+app.post('/api/rules/apply', async (req, res) => {
+    try {
+        const { accountId = 'shared', frequency = 'all' } = req.body;
+        const today = new Date().toISOString().split('T')[0];
+        const queries = await buildRuleAllocationQueries(accountId, frequency, today, 'Rule Allocation');
+
+        if (queries.length === 0) {
+            return res.status(400).json({ error: 'No matching rules to apply' });
+        }
+
+        await db.batch(queries, 'write');
+        res.json({ success: true, allocatedCount: queries.length / 2 });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

@@ -62,6 +62,20 @@ async function addRule() {
   }
 }
 
+async function applyRulesNow(freq) {
+  const res = await fetch('/api/rules/apply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      accountId: props.activeView,
+      frequency: freq
+    })
+  })
+  if (res.ok) {
+    emit('updated')
+  }
+}
+
 async function deleteRule(id) {
   const res = await fetch(`/api/rules/${id}`, { method: 'DELETE' })
   if (res.ok) {
@@ -98,6 +112,15 @@ async function deleteRule(id) {
 
       <button type="submit">Add Rule</button>
     </form>
+
+    <!-- Quick Apply Rules Bar -->
+    <div v-if="filteredRules.length > 0" class="apply-bar">
+      <small>Fund pockets from Main Account:</small>
+      <div class="apply-buttons">
+        <button type="button" @click="applyRulesNow('weekly')">▶ Weekly Rules</button>
+        <button type="button" @click="applyRulesNow('monthly')">▶ Monthly Rules</button>
+      </div>
+    </div>
 
     <!-- Active Rules List -->
     <div class="rules-list">
@@ -219,6 +242,46 @@ async function deleteRule(id) {
 .rule-amount {
   font-weight: bold;
   color: var(--text-h);
+}
+
+.apply-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--code-bg);
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.apply-bar small {
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+}
+
+.apply-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.apply-buttons button {
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: bold;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.apply-buttons button:active {
+  background: var(--accent);
+  color: #fff;
 }
 
 .delete-btn {
