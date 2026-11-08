@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import PinPad from './components/PinPad.vue'
 import AccountTabs from './components/AccountTabs.vue'
 import BalanceCard from './components/BalanceCard.vue'
@@ -68,10 +68,23 @@ async function handleLoginSuccess() {
   }
 }
 
+function handleVisibilityRefresh() {
+  if (document.visibilityState === 'visible' && isAuthenticated.value) {
+    refreshData()
+  }
+}
+
 onMounted(() => {
   if (localStorage.getItem('budget_auth_token')) {
     handleLoginSuccess()
   }
+  document.addEventListener('visibilitychange', handleVisibilityRefresh)
+  window.addEventListener('focus', handleVisibilityRefresh)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityRefresh)
+  window.removeEventListener('focus', handleVisibilityRefresh)
 })
 
 const currentDisplayBalance = computed(() => {
