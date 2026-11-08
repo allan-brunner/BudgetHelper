@@ -47,7 +47,13 @@ const cycleInfo = computed(() => {
   const totalWeeks = daysInCycle / 7
   const weeksRemaining = Math.max(0, Math.ceil(totalWeeks - currentWeekIndex))
 
-  return { currentWeekIndex, totalWeeks, weeksRemaining, daysInCycle }
+  const cycleStartStr = [
+    cycleStart.getFullYear(),
+    String(cycleStart.getMonth() + 1).padStart(2, '0'),
+    String(cycleStart.getDate()).padStart(2, '0')
+  ].join('-')
+
+  return { currentWeekIndex, totalWeeks, weeksRemaining, daysInCycle, cycleStartStr }
 })
 
 async function handleLoginSuccess() {
@@ -182,7 +188,8 @@ async function refreshData() {
       <!-- Transactions -->
       <section v-else-if="currentPage === 'transactions'" class="page-content">
         <TransactionList :transactions="budgetData.transactions" :accounts="budgetData.accounts"
-          :pockets="budgetData.pockets" :activeView="activeView" @updated="refreshData" />
+          :pockets="budgetData.pockets" :activeView="activeView" :cycleStart="cycleInfo.cycleStartStr"
+          @updated="refreshData" />
       </section>
 
       <!-- Recurring / Automatic Transactions -->

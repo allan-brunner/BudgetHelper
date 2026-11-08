@@ -1,14 +1,18 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 
 const props = defineProps({
   transactions: Array,
   accounts: Array,
   pockets: Array,
-  activeView: String
+  activeView: String,
+  cycleStart: String
 })
 
 const emit = defineEmits(['updated'])
+
+const periodFilter = ref('cycle') // 'cycle' or 'all'
+const pocketFilter = ref('all') // 'all', 'unallocated', or pocket.id
 
 const getAccountName = (id) => props.accounts.find(a => a.id === id)?.name || id
 const getPocketName = (id) => {
@@ -18,9 +22,17 @@ const getPocketName = (id) => {
 
 const filteredTransactions = computed(() => {
   if (!props.transactions) return []
-  return props.transactions.filter(tx =>
-    props.activeView === 'shared' ? true : tx.accountId === props.activeView
-  )
+  return props.transactions.filter(tx => {
+    const matchAccount = props.activeView === 'shared' ? true : tx.accountId === props.activeView
+    const matchPeriod = periodFilter.value === 'all' || !props.cycleStart
+      ? true
+      : tx.date >= props.cycleStart
+    const matchPocket = pocketFilter.value === 'all'
+      ? true
+      : tx.pocketId === pocketFilter.value
+
+    return matchAccount && matchPeriod && matchPocket
+  })
 })
 
 async function deleteTx(id) {
@@ -33,6 +45,26 @@ async function deleteTx(id) {
 
 <template>
   <div class="transaction-list">
+    <!-- Filter Controls -->
+    <div class="filters-bar">
+      <div class="toggle-group">
+        <button type="button" :class="{ active: periodFilter === 'cycle' }" @click="periodFilter = 'cycle'">
+          This Cycle
+        </button>
+        <button type="button" :class="{ active: periodFilter === 'all' }" @click="periodFilter = 'all'">
+          All Time
+        </button>
+      </div>
+
+      <select v-model="pocketFilter" class="pocket-filter">
+        <option value="all">All Pockets</option>
+        <option value="unallocated">Main Account</option>
+        <option v-for="p in pockets" :key="p.id" :value="p.id">
+          {{ p.name }}
+        </option>
+      </select>
+    </div>
+
     <div v-if="filteredTransactions.length === 0" class="empty-state">
       No transactions found.
     </div>
@@ -62,6 +94,53 @@ async function deleteTx(id) {
   flex-direction: column;
   gap: 0.75rem;
   padding-bottom: 5rem;
+}
+
+.filters-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--code-bg);
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.toggle-group {
+  display: flex;
+  background: var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.toggle-group button {
+  border: none;
+  background: transparent;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.toggle-group button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.pocket-filter {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  font-size: 0.85rem;
 }
 
 .empty-state {

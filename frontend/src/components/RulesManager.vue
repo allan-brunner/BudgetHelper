@@ -20,6 +20,18 @@ watch(() => props.activeView, (newVal) => {
   if (newVal !== 'shared') accountId.value = newVal
 })
 
+// Auto-select the first available pocket when pockets are created or deleted
+watch(() => props.pockets, (newPockets) => {
+  if (newPockets && newPockets.length > 0) {
+    const exists = newPockets.some(p => p.id === pocketId.value)
+    if (!pocketId.value || !exists) {
+      pocketId.value = newPockets[0].id
+    }
+  } else {
+    pocketId.value = ''
+  }
+}, { immediate: true, deep: true })
+
 const getAccountName = (id) => props.accounts.find(a => a.id === id)?.name || id
 const getPocketName = (id) => props.pockets.find(p => p.id === id)?.name || id
 
