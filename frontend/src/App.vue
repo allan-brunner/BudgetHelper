@@ -123,10 +123,32 @@ const visiblePocketBalances = computed(() => {
   return Array.from(map.values())
 })
 
+// Set of pocket IDs marked as Savings / Épargne
+const savingsPocketIds = computed(() => {
+  if (!budgetData.value?.pockets) return new Set()
+  return new Set(
+    budgetData.value.pockets
+      .filter(p => Boolean(p.isSavings))
+      .map(p => p.id)
+  )
+})
+
+// Spendable balance (excludes Savings / Épargne pockets)
 const currentDisplayBalance = computed(() => {
   if (!budgetData.value) return '0.00'
   const relevantBalances = visiblePocketBalances.value.filter(b =>
-    activeView.value === 'shared' ? true : b.accountId === activeView.value
+    !savingsPocketIds.value.has(b.pocketId) &&
+    (activeView.value === 'shared' ? true : b.accountId === activeView.value)
+  )
+  return relevantBalances.reduce((sum, b) => sum + b.balance, 0).toFixed(2)
+})
+
+// Total accumulated in Savings / Épargne pockets
+const savingsBalance = computed(() => {
+  if (!budgetData.value) return '0.00'
+  const relevantBalances = visiblePocketBalances.value.filter(b =>
+    savingsPocketIds.value.has(b.pocketId) &&
+    (activeView.value === 'shared' ? true : b.accountId === activeView.value)
   )
   return relevantBalances.reduce((sum, b) => sum + b.balance, 0).toFixed(2)
 })
@@ -141,7 +163,7 @@ const unallocatedBalance = computed(() => {
 })
 
 const balanceTitle = computed(() => {
-  return activeView.value === 'shared' ? 'Total Couple Balance' : 'Personal Balance'
+  return activeView.value === 'shared' ? 'Total Spendable Balance' : 'Personal Spendable Balance'
 })
 
 // Dynamic Targets & Predictions
@@ -149,21 +171,20 @@ const displayPockets = computed(() => {
   if (!budgetData.value) return []
 
   return budgetData.value.pockets.map(pocket => {
-    // Current Balance (uses visiblePocketBalances so secret gifts stay hidden)
     const balances = visiblePocketBalances.value.filter(b =>
       b.pocketId === pocket.id &&
       (activeView.value === 'shared' || b.accountId === activeView.value)
     )
     const currentBalance = balances.reduce((sum, b) => sum + b.balance, 0)
 
-    // Expected Rules (must read from budgetData.value.budgetRules)
     const rules = budgetData.value.budgetRules.filter(r =>
       r.pocketId === pocket.id &&
       (activeView.value === 'shared' || r.accountId === activeView.value)
     )
 
-    // Calculate Target based on timeframe toggle
-    const target = rules.reduce((sum, rule) => {
+    // If a savings pocket has a fixed long-term goalAmount (e.g. 9000 CHF for school), use that as target
+    const hasCustomGoal = Boolean(pocket.isSavings) && Number(pocket.goalAmount) > 0
+    const ruleTarget = rules.reduce((sum, rule) => {
       if (timeframe.value === 'week') {
         return sum + (rule.frequency === 'monthly' ? rule.amount / cycleInfo.value.totalWeeks : rule.amount)
       } else {
@@ -171,7 +192,8 @@ const displayPockets = computed(() => {
       }
     }, 0)
 
-    // Only weekly frequencies project upcoming expected money
+    const target = hasCustomGoal ? Number(pocket.goalAmount) : ruleTarget
+
     const upcomingPrediction = rules.reduce((sum, rule) => {
       if (rule.frequency === 'monthly') {
         return sum
@@ -179,7 +201,6 @@ const displayPockets = computed(() => {
       return sum + (rule.amount * cycleInfo.value.weeksRemaining)
     }, 0)
 
-    // Calculate percentages for the split progress bar
     const actualPercent = target > 0 ? Math.max(0, (currentBalance / target) * 100) : (currentBalance > 0 ? 100 : 0)
     const predictedPercent = target > 0 ? Math.max(0, (upcomingPrediction / target) * 100) : 0
 
@@ -237,7 +258,8 @@ async function refreshData() {
 
       <!-- Dashboard -->
       <section v-if="currentPage === 'dashboard'" class="page-content">
-        <BalanceCard :title="balanceTitle" :amount="currentDisplayBalance" :unallocated="unallocatedBalance" />
+        <BalanceCard :title="balanceTitle" :amount="currentDisplayBalance" :unallocated="unallocatedBalance"
+          :savings="savingsBalance" />
 
         <div class="controls-row">
           <div class="cycle-info">

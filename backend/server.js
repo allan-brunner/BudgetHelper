@@ -30,7 +30,9 @@ async function initDb(retries = 10) {
         CREATE TABLE IF NOT EXISTS pockets (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
-          pinned INTEGER NOT NULL DEFAULT 1
+          pinned INTEGER NOT NULL DEFAULT 1,
+          isSavings INTEGER NOT NULL DEFAULT 0,
+          goalAmount REAL NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS budget_rules (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,10 +68,11 @@ async function initDb(retries = 10) {
       `);
 
             try {
-                await db.execute('ALTER TABLE transactions ADD COLUMN isSecret INTEGER NOT NULL DEFAULT 0');
-            } catch (e) {
-                // Column already exists, ignore
-            }
+                await db.execute('ALTER TABLE pockets ADD COLUMN isSavings INTEGER NOT NULL DEFAULT 0');
+            } catch (e) {}
+            try {
+                await db.execute('ALTER TABLE pockets ADD COLUMN goalAmount REAL NOT NULL DEFAULT 0');
+            } catch (e) {}
 
             const countRes = await db.execute('SELECT COUNT(*) as count FROM accounts');
             if (Number(countRes.rows[0].count) === 0) {
@@ -595,7 +598,7 @@ app.delete('/api/rules/:id', async (req, res) => {
 // Create a new pocket
 app.post('/api/pockets', async (req, res) => {
     try {
-        const { name, pinned = 1 } = req.body;
+        const { name, pinned = 1, isSavings = 0, goalAmount = 0 } = req.body;
         if (!name || !name.trim()) {
             return res.status(400).json({ error: 'Pocket name is required' });
         }
@@ -604,29 +607,46 @@ app.post('/api/pockets', async (req, res) => {
         const baseSlug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         const id = `${baseSlug || 'pocket'}-${Date.now().toString().slice(-4)}`;
         const isPinned = pinned ? 1 : 0;
+        const savingsFlag = isSavings ? 1 : 0;
+        const numGoal = Number(goalAmount) || 0;
 
         await db.execute({
-            sql: 'INSERT INTO pockets (id, name, pinned) VALUES (?, ?, ?)',
-            args: [id, cleanName, isPinned]
+            sql: 'INSERT INTO pockets (id, name, pinned, isSavings, goalAmount) VALUES (?, ?, ?, ?, ?)',
+            args: [id, cleanName, isPinned, savingsFlag, numGoal]
         });
 
         res.status(201).json({
             success: true,
-            pocket: { id, name: cleanName, pinned: isPinned }
+            pocket: { id, name: cleanName, pinned: isPinned, isSavings: savingsFlag, goalAmount: numGoal }
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Toggle pocket pinned status on Dashboard
+// Update pocket pinned or savings status
 app.patch('/api/pockets/:id', async (req, res) => {
     try {
-        const { pinned } = req.body;
-        await db.execute({
-            sql: 'UPDATE pockets SET pinned = ? WHERE id = ?',
-            args: [pinned ? 1 : 0, req.params.id]
+        const { pinned, isSavings, goalAmount } = req.body;
+        const currentRes = await db.execute({
+            sql: 'SELECT * FROM pockets WHERE id = ?',
+            args: [req.params.id]
         });
+
+        if (currentRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Pocket not found' });
+        }
+
+        const curr = currentRes.rows[0];
+        const nextPinned = pinned !== undefined ? (pinned ? 1 : 0) : curr.pinned;
+        const nextSavings = isSavings !== undefined ? (isSavings ? 1 : 0) : curr.isSavings;
+        const nextGoal = goalAmount !== undefined ? (Number(goalAmount) || 0) : curr.goalAmount;
+
+        await db.execute({
+            sql: 'UPDATE pockets SET pinned = ?, isSavings = ?, goalAmount = ? WHERE id = ?',
+            args: [nextPinned, nextSavings, nextGoal, req.params.id]
+        });
+
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });

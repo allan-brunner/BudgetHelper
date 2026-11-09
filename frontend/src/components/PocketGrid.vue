@@ -10,12 +10,11 @@ defineEmits(['select'])
     <div v-for="pocket in pockets" :key="pocket.id" class="pocket-card"
       :class="{ 'card-overspent': pocket.balance < 0 }" @click="$emit('select', pocket.id)">
       <div class="pocket-header">
-        <small>{{ pocket.name }}</small>
+        <small>{{ pocket.isSavings ? '🏦 ' : '' }}{{ pocket.name }}</small>
         <strong :class="{ 'text-overspent': pocket.balance < 0 }">
           {{ pocket.balance.toFixed(2) }} <span class="target">/ {{ pocket.target.toFixed(0) }} CHF</span>
         </strong>
       </div>
-
       <!-- Split Progress Bar -->
       <div class="progress-bar-bg">
         <div class="progress-bar-fill"

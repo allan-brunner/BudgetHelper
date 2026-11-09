@@ -2,7 +2,8 @@
 defineProps({
   title: String,
   amount: [Number, String],
-  unallocated: [Number, String]
+  unallocated: [Number, String],
+  savings: [Number, String]
 })
 </script>
 
@@ -10,9 +11,14 @@ defineProps({
   <div class="balance-card">
     <span>{{ title }}</span>
     <h1>{{ amount }} CHF</h1>
-    <small class="unallocated">
-      Unallocated on account: <strong>{{ unallocated }} CHF</strong>
-    </small>
+    <div class="sub-balances">
+      <small class="unallocated">
+        Unallocated: <strong>{{ unallocated }} CHF</strong>
+      </small>
+      <small v-if="Number(savings) !== 0" class="savings-pill">
+        🏦 Épargne: <strong>{{ savings }} CHF</strong>
+      </small>
+    </div>
   </div>
 </template>
 
@@ -41,12 +47,26 @@ defineProps({
   color: var(--text-h);
 }
 
-.unallocated {
+.sub-balances {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+}
+
+.unallocated,
+.savings-pill {
   font-size: 0.85rem;
   color: var(--text);
 }
 
 .unallocated strong {
   color: var(--accent);
+}
+
+.savings-pill strong {
+  color: #10b981;
 }
 </style>

@@ -9,6 +9,8 @@ const emit = defineEmits(['updated'])
 
 const newPocketName = ref('')
 const pinByDefault = ref(true)
+const isSavings = ref(false)
+const goalAmount = ref('')
 
 async function addPocket() {
     if (!newPocketName.value.trim()) return
@@ -18,13 +20,17 @@ async function addPocket() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             name: newPocketName.value.trim(),
-            pinned: pinByDefault.value
+            pinned: pinByDefault.value,
+            isSavings: isSavings.value,
+            goalAmount: isSavings.value && goalAmount.value ? parseFloat(goalAmount.value) : 0
         })
     })
 
     if (res.ok) {
         newPocketName.value = ''
         pinByDefault.value = true
+        isSavings.value = false
+        goalAmount.value = ''
         emit('updated')
     }
 }
@@ -37,17 +43,23 @@ async function togglePin(pocket) {
             pinned: !pocket.pinned
         })
     })
+    if (res.ok) emit('updated')
+}
 
-    if (res.ok) {
-        emit('updated')
-    }
+async function toggleSavings(pocket) {
+    const res = await fetch(`/api/pockets/${pocket.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            isSavings: !pocket.isSavings
+        })
+    })
+    if (res.ok) emit('updated')
 }
 
 async function deletePocket(id) {
     const res = await fetch(`/api/pockets/${id}`, { method: 'DELETE' })
-    if (res.ok) {
-        emit('updated')
-    }
+    if (res.ok) emit('updated')
 }
 </script>
 
@@ -57,12 +69,25 @@ async function deletePocket(id) {
         <form class="pocket-form" @submit.prevent="addPocket">
             <h3>New Pocket</h3>
             <div class="row">
-                <input v-model="newPocketName" type="text" placeholder="Pocket name (e.g. Holidays, Rent)" required />
+                <input v-model="newPocketName" type="text" placeholder="Pocket name (e.g. Épargne, School Reserve)"
+                    required />
             </div>
+
             <label class="pin-checkbox">
                 <input v-model="pinByDefault" type="checkbox" />
                 <span>Pin to Dashboard</span>
             </label>
+
+            <label class="pin-checkbox">
+                <input v-model="isSavings" type="checkbox" />
+                <span>🏦 Savings / Épargne (exclude from spendable balance)</span>
+            </label>
+
+            <div v-if="isSavings" class="row">
+                <input v-model="goalAmount" type="number" step="0.01"
+                    placeholder="Total Goal Target in CHF (optional, e.g. 9000)" />
+            </div>
+
             <button type="submit">Add Pocket</button>
         </form>
 
@@ -75,7 +100,10 @@ async function deletePocket(id) {
             <div v-for="pocket in pockets" :key="pocket.id" class="pocket-item">
                 <div class="pocket-top">
                     <div class="pocket-info">
-                        <strong>{{ pocket.name }}</strong>
+                        <div class="pocket-title-row">
+                            <strong>{{ pocket.name }}</strong>
+                            <span v-if="pocket.isSavings" class="savings-badge">🏦 Épargne</span>
+                        </div>
                         <span :class="{ 'text-overspent': pocket.balance < 0 }">
                             {{ pocket.balance.toFixed(2) }}
                             <small>/ {{ pocket.target.toFixed(0) }} CHF</small>
@@ -83,6 +111,11 @@ async function deletePocket(id) {
                     </div>
 
                     <div class="pocket-actions">
+                        <button type="button" class="pin-btn" :class="{ active: pocket.isSavings }"
+                            @click="toggleSavings(pocket)"
+                            title="Toggle Savings / Épargne mode (excludes from spendable balance)">
+                            🏦
+                        </button>
                         <button type="button" class="pin-btn" :class="{ active: pocket.pinned }"
                             @click="togglePin(pocket)"
                             :title="pocket.pinned ? 'Unpin from Dashboard' : 'Pin to Dashboard'">
@@ -141,7 +174,8 @@ async function deletePocket(id) {
     gap: 0.5rem;
 }
 
-.pocket-form input[type="text"] {
+.pocket-form input[type="text"],
+.pocket-form input[type="number"] {
     flex: 1;
     min-width: 0;
     padding: 0.6rem;
@@ -155,10 +189,11 @@ async function deletePocket(id) {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     color: var(--text-h);
     cursor: pointer;
     user-select: none;
+    text-align: left;
 }
 
 .pocket-form button {
@@ -207,9 +242,25 @@ async function deletePocket(id) {
     min-width: 0;
 }
 
+.pocket-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
 .pocket-info strong {
     color: var(--text-h);
     font-size: 1rem;
+}
+
+.savings-badge {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    font-weight: 600;
 }
 
 .pocket-info span {
@@ -231,12 +282,12 @@ async function deletePocket(id) {
 .pocket-actions {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
     flex-shrink: 0;
 }
 
 .pin-btn {
-    padding: 0.35rem 0.65rem;
+    padding: 0.35rem 0.6rem;
     border-radius: 6px;
     border: 1px solid var(--border);
     background: var(--bg);
