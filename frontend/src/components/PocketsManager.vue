@@ -104,10 +104,14 @@ async function deletePocket(id) {
                             <strong>{{ pocket.name }}</strong>
                             <span v-if="pocket.isSavings" class="savings-badge">🏦 Épargne</span>
                         </div>
-                        <span :class="{ 'text-overspent': pocket.balance < 0 }">
-                            {{ pocket.balance.toFixed(2) }}
+                        <span :class="{ 'text-overspent': pocket.displayBalance < 0 }">
+                            {{ pocket.displayBalance.toFixed(2) }}
                             <small>/ {{ pocket.target.toFixed(0) }} CHF</small>
                         </span>
+                        <small v-if="pocket.isWeeklyView && Math.abs(pocket.balance - pocket.displayBalance) > 0.01"
+                            class="total-hint">
+                            Total in pocket: {{ pocket.balance.toFixed(2) }} CHF
+                        </small>
                     </div>
 
                     <div class="pocket-actions">
@@ -130,12 +134,12 @@ async function deletePocket(id) {
                 <!-- Progress Bar -->
                 <div class="progress-bar-bg">
                     <div class="progress-bar-fill"
-                        :style="{ width: (pocket.balance < 0 ? 100 : Math.min(pocket.actualPercent, 100)) + '%' }"
+                        :style="{ width: (pocket.displayBalance < 0 ? 100 : Math.min(pocket.actualPercent, 100)) + '%' }"
                         :class="{
-                            overspent: pocket.balance < 0,
-                            surplus: pocket.balance >= 0 && pocket.actualPercent > 100
+                            overspent: pocket.displayBalance < 0,
+                            surplus: pocket.displayBalance >= 0 && pocket.actualPercent > 100
                         }"></div>
-                    <div v-if="pocket.balance >= 0 && pocket.predictedPercent > 0 && pocket.actualPercent < 100"
+                    <div v-if="pocket.displayBalance >= 0 && pocket.predictedPercent > 0 && pocket.actualPercent < 100"
                         class="progress-bar-predicted"
                         :style="{ width: Math.min(pocket.predictedPercent, 100 - pocket.actualPercent) + '%' }"></div>
                 </div>
@@ -252,6 +256,11 @@ async function deletePocket(id) {
 .pocket-info strong {
     color: var(--text-h);
     font-size: 1rem;
+}
+
+.total-hint {
+    font-size: 0.75rem;
+    color: var(--text);
 }
 
 .savings-badge {

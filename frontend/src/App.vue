@@ -24,6 +24,8 @@ const CYCLE_START_DAY = 20
 // Date Math for Custom Cycle
 const cycleInfo = computed(() => {
   const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
   let startMonth = today.getMonth()
   let startYear = today.getFullYear()
 
@@ -44,19 +46,26 @@ const cycleInfo = computed(() => {
   const cycleEnd = new Date(nextYear, nextMonth, CYCLE_START_DAY)
 
   const daysInCycle = (cycleEnd - cycleStart) / (1000 * 60 * 60 * 24)
-  const daysElapsed = (today - cycleStart) / (1000 * 60 * 60 * 24)
+  const daysElapsed = Math.max(0, (today - cycleStart) / (1000 * 60 * 60 * 24))
 
   const currentWeekIndex = Math.floor(daysElapsed / 7) + 1
   const totalWeeks = daysInCycle / 7
   const weeksRemaining = Math.max(0, Math.ceil(totalWeeks - currentWeekIndex))
 
-  const cycleStartStr = [
-    cycleStart.getFullYear(),
-    String(cycleStart.getMonth() + 1).padStart(2, '0'),
-    String(cycleStart.getDate()).padStart(2, '0')
+  // Start date of the current 7-day week within this cycle
+  const weekStart = new Date(cycleStart)
+  weekStart.setDate(cycleStart.getDate() + (currentWeekIndex - 1) * 7)
+
+  const formatYMD = (d) => [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0')
   ].join('-')
 
-  return { currentWeekIndex, totalWeeks, weeksRemaining, daysInCycle, cycleStartStr }
+  const cycleStartStr = formatYMD(cycleStart)
+  const weekStartStr = formatYMD(weekStart)
+
+  return { currentWeekIndex, totalWeeks, weeksRemaining, daysInCycle, cycleStartStr, weekStartStr }
 })
 
 async function handleLoginSuccess() {
@@ -182,31 +191,72 @@ const displayPockets = computed(() => {
       (activeView.value === 'shared' || r.accountId === activeView.value)
     )
 
-    // If a savings pocket has a fixed long-term goalAmount (e.g. 9000 CHF for school), use that as target
-    const hasCustomGoal = Boolean(pocket.isSavings) && Number(pocket.goalAmount) > 0
-    const ruleTarget = rules.reduce((sum, rule) => {
-      if (timeframe.value === 'week') {
-        return sum + (rule.frequency === 'monthly' ? rule.amount / cycleInfo.value.totalWeeks : rule.amount)
-      } else {
-        return sum + (rule.frequency === 'weekly' ? rule.amount * cycleInfo.value.totalWeeks : rule.amount)
-      }
+    // Full cycle (monthly) target and single-week target
+    const monthlyRuleTarget = rules.reduce((sum, rule) => {
+      return sum + (rule.frequency === 'weekly' ? rule.amount * cycleInfo.value.totalWeeks : rule.amount)
     }, 0)
 
-    const target = hasCustomGoal ? Number(pocket.goalAmount) : ruleTarget
+    const weeklyRuleTarget = rules.reduce((sum, rule) => {
+      return sum + (rule.frequency === 'monthly' ? rule.amount / cycleInfo.value.totalWeeks : rule.amount)
+    }, 0)
 
-    const upcomingPrediction = rules.reduce((sum, rule) => {
-      if (rule.frequency === 'monthly') {
-        return sum
-      }
+    // If a savings pocket has a fixed long-term goalAmount, use that as target
+    const hasCustomGoal = Boolean(pocket.isSavings) && Number(pocket.goalAmount) > 0
+    const target = hasCustomGoal
+      ? Number(pocket.goalAmount)
+      : (timeframe.value === 'week' ? weeklyRuleTarget : monthlyRuleTarget)
+
+    // Sum credits already added to this pocket during the current cycle
+    const fundedThisCycle = visibleTransactions.value
+      .filter(tx =>
+        tx.pocketId === pocket.id &&
+        tx.type === 'credit' &&
+        tx.date >= cycleInfo.value.cycleStartStr &&
+        (activeView.value === 'shared' || tx.accountId === activeView.value)
+      )
+      .reduce((sum, tx) => sum + Number(tx.amount), 0)
+
+    // Sum actual spending (excluding outgoing transfers) during the current 7-day week
+    const spentThisWeek = visibleTransactions.value
+      .filter(tx =>
+        tx.pocketId === pocket.id &&
+        tx.type === 'debit' &&
+        !tx.label?.endsWith('(→)') &&
+        tx.date >= cycleInfo.value.weekStartStr &&
+        (activeView.value === 'shared' || tx.accountId === activeView.value)
+      )
+      .reduce((sum, tx) => sum + Number(tx.amount), 0)
+
+    // Cap upcoming weekly prediction to what hasn't already been funded this cycle
+    const rawWeeklyPrediction = rules.reduce((sum, rule) => {
+      if (rule.frequency === 'monthly') return sum
       return sum + (rule.amount * cycleInfo.value.weeksRemaining)
     }, 0)
 
-    const actualPercent = target > 0 ? Math.max(0, (currentBalance / target) * 100) : (currentBalance > 0 ? 100 : 0)
-    const predictedPercent = target > 0 ? Math.max(0, (upcomingPrediction / target) * 100) : 0
+    const unfundedCycleTarget = Math.max(0, monthlyRuleTarget - Math.max(fundedThisCycle, currentBalance))
+    const upcomingPrediction = timeframe.value === 'month'
+      ? Math.min(rawWeeklyPrediction, unfundedCycleTarget)
+      : 0
+
+    // In Week view (for spending pockets with rules), cap displayed amount to this week's remaining allowance
+    const isWeeklyView = timeframe.value === 'week' && !pocket.isSavings && target > 0
+    const weeklyAllowanceLeft = target - spentThisWeek
+    const displayBalance = isWeeklyView
+      ? Math.min(currentBalance, weeklyAllowanceLeft)
+      : currentBalance
+
+    const actualPercent = target > 0
+      ? Math.max(0, (displayBalance / target) * 100)
+      : (displayBalance > 0 ? 100 : 0)
+    const predictedPercent = target > 0
+      ? Math.max(0, (upcomingPrediction / target) * 100)
+      : 0
 
     return {
       ...pocket,
       balance: currentBalance,
+      displayBalance,
+      isWeeklyView,
       target,
       actualPercent,
       predictedPercent

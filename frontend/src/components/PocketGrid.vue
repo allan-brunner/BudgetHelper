@@ -8,22 +8,26 @@ defineEmits(['select'])
 <template>
   <div class="pockets-grid">
     <div v-for="pocket in pockets" :key="pocket.id" class="pocket-card"
-      :class="{ 'card-overspent': pocket.balance < 0 }" @click="$emit('select', pocket.id)">
+      :class="{ 'card-overspent': pocket.displayBalance < 0 }" @click="$emit('select', pocket.id)">
       <div class="pocket-header">
         <small>{{ pocket.isSavings ? '🏦 ' : '' }}{{ pocket.name }}</small>
-        <strong :class="{ 'text-overspent': pocket.balance < 0 }">
-          {{ pocket.balance.toFixed(2) }} <span class="target">/ {{ pocket.target.toFixed(0) }} CHF</span>
+        <strong :class="{ 'text-overspent': pocket.displayBalance < 0 }">
+          {{ pocket.displayBalance.toFixed(2) }} <span class="target">/ {{ pocket.target.toFixed(0) }} CHF</span>
         </strong>
+        <span v-if="pocket.isWeeklyView && Math.abs(pocket.balance - pocket.displayBalance) > 0.01" class="total-hint">
+          Total: {{ pocket.balance.toFixed(2) }} CHF
+        </span>
       </div>
+
       <!-- Split Progress Bar -->
       <div class="progress-bar-bg">
         <div class="progress-bar-fill"
-          :style="{ width: (pocket.balance < 0 ? 100 : Math.min(pocket.actualPercent, 100)) + '%' }" :class="{
-            overspent: pocket.balance < 0,
-            surplus: pocket.balance >= 0 && pocket.actualPercent > 100
+          :style="{ width: (pocket.displayBalance < 0 ? 100 : Math.min(pocket.actualPercent, 100)) + '%' }" :class="{
+            overspent: pocket.displayBalance < 0,
+            surplus: pocket.displayBalance >= 0 && pocket.actualPercent > 100
           }"></div>
 
-        <div v-if="pocket.balance >= 0 && pocket.predictedPercent > 0 && pocket.actualPercent < 100"
+        <div v-if="pocket.displayBalance >= 0 && pocket.predictedPercent > 0 && pocket.actualPercent < 100"
           class="progress-bar-predicted"
           :style="{ width: Math.min(pocket.predictedPercent, 100 - pocket.actualPercent) + '%' }"></div>
       </div>
@@ -62,6 +66,7 @@ defineEmits(['select'])
 .pocket-header {
   display: flex;
   flex-direction: column;
+  text-align: left;
 }
 
 .pocket-header small {
@@ -82,6 +87,12 @@ defineEmits(['select'])
   font-size: 0.85rem;
   color: var(--text);
   font-weight: normal;
+}
+
+.total-hint {
+  font-size: 0.72rem;
+  color: var(--text);
+  margin-top: 0.1rem;
 }
 
 /* Split Progress Bar Styles */
